@@ -7,7 +7,7 @@
  */
 
 import type { SyncQueueItem, AddToQueueParams } from './sync-queue';
-import { addToQueue, removeFromQueue, removeMultipleFromQueue, getPendingItems, incrementRetry } from './sync-queue';
+import { addToQueue, getPendingItems, incrementRetry } from './sync-queue';
 import type { TimestampedRecord, BatchMergeResult } from './conflict-resolver';
 import { batchMerge } from './conflict-resolver';
 
@@ -111,7 +111,6 @@ export async function enqueueSync(params: AddToQueueParams): Promise<void> {
   const updatedQueue = addToQueue(currentQueue, params);
 
   // 找出新增或变更的条目并写入
-  const currentIds = new Set(currentQueue.map((i) => i.id));
   for (const item of updatedQueue) {
     const existing = currentQueue.find((i) => i.id === item.id);
     if (!existing || JSON.stringify(existing) !== JSON.stringify(item)) {

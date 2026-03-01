@@ -31,9 +31,9 @@ export function calculateMacroRatios(protein: number, fat: number, carbs: number
 }
 
 const nutrients = [
-  { key: 'protein' as const, label: '蛋白质', color: 'bg-blue-500' },
-  { key: 'fat' as const, label: '脂肪', color: 'bg-yellow-500' },
-  { key: 'carbs' as const, label: '碳水', color: 'bg-orange-500' },
+  { key: 'protein' as const, label: '蛋白质' },
+  { key: 'fat' as const, label: '脂肪' },
+  { key: 'carbs' as const, label: '碳水' },
 ];
 
 /**
@@ -50,7 +50,7 @@ export function NutritionBreakdown({ protein, fat, carbs }: NutritionBreakdownPr
       <h3 className="text-sm font-medium">营养摄入</h3>
 
       <div className="grid grid-cols-3 gap-3">
-        {nutrients.map(({ key, label, color }) => (
+        {nutrients.map(({ key, label }) => (
           <div key={key} className="text-center">
             <div className="text-lg font-semibold tabular-nums">
               {Math.round(grams[key])}g

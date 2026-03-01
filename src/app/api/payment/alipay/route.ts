@@ -6,8 +6,6 @@ import {
 import type { PaymentTransactionType } from '@/types';
 
 const ALIPAY_APP_ID = process.env.ALIPAY_APP_ID!;
-const ALIPAY_PRIVATE_KEY = process.env.ALIPAY_PRIVATE_KEY!;
-const ALIPAY_PUBLIC_KEY = process.env.ALIPAY_PUBLIC_KEY!;
 const ALIPAY_NOTIFY_URL = process.env.ALIPAY_NOTIFY_URL!;
 
 /**

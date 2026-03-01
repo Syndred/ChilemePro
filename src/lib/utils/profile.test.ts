@@ -14,6 +14,7 @@ import {
   AGE_MIN,
   AGE_MAX,
 } from './profile';
+import type { ActivityLevel, Gender } from '@/types';
 
 // --- calculateCheckInStats ---
 
@@ -175,13 +176,19 @@ describe('validateEditProfile', () => {
   });
 
   it('rejects invalid gender', () => {
-    const result = validateEditProfile({ ...validInput, gender: 'invalid' as any });
+    const result = validateEditProfile({
+      ...validInput,
+      gender: 'invalid' as unknown as Gender,
+    });
     expect(result.valid).toBe(false);
     expect(result.errors.gender).toBeDefined();
   });
 
   it('rejects invalid activity level', () => {
-    const result = validateEditProfile({ ...validInput, activityLevel: 'invalid' as any });
+    const result = validateEditProfile({
+      ...validInput,
+      activityLevel: 'invalid' as unknown as ActivityLevel,
+    });
     expect(result.valid).toBe(false);
     expect(result.errors.activityLevel).toBeDefined();
   });
@@ -204,8 +211,8 @@ describe('validateEditProfile', () => {
       weight: 0,
       targetWeight: 0,
       age: 0,
-      gender: 'invalid' as any,
-      activityLevel: 'invalid' as any,
+      gender: 'invalid' as unknown as Gender,
+      activityLevel: 'invalid' as unknown as ActivityLevel,
     });
     expect(result.valid).toBe(false);
     expect(Object.keys(result.errors).length).toBeGreaterThan(1);

@@ -12,6 +12,7 @@
 
 import type { MembershipTier } from '@/types';
 import { MEMBERSHIP_PRICES } from './payment';
+export type { MembershipTier } from '@/types';
 
 // --- Constants ---
 

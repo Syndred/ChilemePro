@@ -14,7 +14,6 @@ import {
   classifyNetworkSpeed,
   shouldShowLoadingState,
   type ImageLoadingState,
-  type NetworkSpeedInput,
 } from './animation';
 
 // ============================================================

@@ -6,8 +6,6 @@ import {
   validateWithdrawalAmount,
   validateWithdrawalMethod,
   validateWithdrawalAccount,
-  calculateWithdrawalFee,
-  getEstimatedProcessingDays,
   type WithdrawalMethod,
 } from '@/lib/utils/withdrawal';
 import type { RewardTransaction, TransactionStatus } from '@/types';
@@ -158,10 +156,6 @@ export async function requestWithdrawal(input: {
     if (!amountCheck.valid) {
       return { success: false, error: amountCheck.reason };
     }
-
-    // Calculate fee
-    const { fee, netAmount } = calculateWithdrawalFee(input.amount, method);
-    const estimatedDays = getEstimatedProcessingDays(method);
 
     // Create withdrawal transaction (negative amount for withdrawal)
     const newBalance = Math.round((balance - input.amount) * 100) / 100;

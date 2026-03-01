@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState, useCallback } from 'react';
+import Image from 'next/image';
 import { Camera, ImagePlus, X, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -110,9 +111,12 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       {/* Preview or camera view */}
       {preview ? (
         <div className="relative">
-          <img
+          <Image
             src={preview}
             alt="食物照片预览"
+            width={1280}
+            height={960}
+            unoptimized
             className="w-full rounded-lg object-cover"
             style={{ maxHeight: '60vh' }}
           />

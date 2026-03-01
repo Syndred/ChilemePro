@@ -7,7 +7,6 @@ import {
   createVerificationAttempt,
   generateVerificationCode,
   verifyCode,
-  isValidPhone,
   type LockoutState,
   type VerificationAttempt,
 } from '@/lib/services/verification-code';
@@ -33,7 +32,7 @@ export async function sendVerificationCode(
   // Validate input
   const parsed = sendCodeSchema.safeParse(formData);
   if (!parsed.success) {
-    return { success: false, error: parsed.error.errors[0].message };
+    return { success: false, error: parsed.error.issues[0].message };
   }
 
   const { phone } = parsed.data;
@@ -82,7 +81,7 @@ export async function verifyAndLogin(
   // Validate input
   const parsed = verifyCodeSchema.safeParse(formData);
   if (!parsed.success) {
-    return { success: false, error: parsed.error.errors[0].message };
+    return { success: false, error: parsed.error.issues[0].message };
   }
 
   const { phone, code } = parsed.data;
@@ -127,7 +126,7 @@ export async function verifyAndLogin(
     const supabase = await createClient();
 
     // Try to sign in with Supabase Auth
-    const { data: authData, error: authError } = await supabase.auth.signInWithOtp({
+    const { error: authError } = await supabase.auth.signInWithOtp({
       phone,
     });
 
@@ -172,45 +171,6 @@ export async function verifyAndLogin(
     return { success: false, error: '服务器错误，请重试' };
   }
 }
-
-/**
- * Initiate WeChat OAuth login
- * Requirement 1.3: WeChat OAuth authentication
- *
- * Returns the WeChat authorization URL for the client to redirect to.
- */
-export async function initiateWeChatLogin(
-  baseUrl: string
-): Promise<ActionResult<{ authUrl: string; state: string }>> {
-  try {
-    const { buildAuthorizationUrl, getWeChatConfig } = await import(
-      '@/lib/services/wechat-oauth'
-    );
-
-    const config = getWeChatConfig(baseUrl);
-
-    // Generate random state for CSRF protection
-    const state = crypto.randomUUID();
-
-    const authUrl = buildAuthorizationUrl(
-      { appId: config.appId, redirectUri: config.redirectUri },
-      state
-    );
-
-    return {
-      success: true,
-      data: { authUrl, state },
-    };
-  } catch (error) {
-    console.error('WeChat login initiation error:', error);
-    return {
-      success: false,
-      error: '微信登录初始化失败，请稍后重试',
-    };
-  }
-}
-
-
 
 /**
  * Initiate WeChat OAuth login

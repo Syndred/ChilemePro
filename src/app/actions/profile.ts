@@ -9,7 +9,7 @@ import {
   type EditProfileInput,
   type CheckInStats,
 } from '@/lib/utils/profile';
-import type { RewardTransaction, TransactionStatus, Gender, ActivityLevel } from '@/types';
+import type { Gender, ActivityLevel } from '@/types';
 
 export interface ActionResult<T = void> {
   success: boolean;

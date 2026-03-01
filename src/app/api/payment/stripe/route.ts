@@ -8,9 +8,16 @@ import {
 } from '@/lib/utils/payment';
 import type { PaymentTransactionType } from '@/types';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-05-28.basil',
-});
+function getStripeClient(): Stripe {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    throw new Error('Missing STRIPE_SECRET_KEY environment variable');
+  }
+
+  return new Stripe(secretKey, {
+    apiVersion: '2026-02-25.clover',
+  });
+}
 
 /**
  * POST /api/payment/stripe
@@ -21,6 +28,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
  */
 export async function POST(request: NextRequest) {
   try {
+    const stripe = getStripeClient();
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
 

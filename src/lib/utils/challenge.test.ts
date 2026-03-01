@@ -249,7 +249,6 @@ import {
   isTaskReminderTime,
   shouldSendTaskReminder,
   isInSettlementWindow,
-  TASK_REMINDER_HOUR,
 } from './challenge';
 
 // --- settleDailyTask ---
@@ -494,8 +493,6 @@ import {
   calculateRewardPoolTotal,
   isPerfectAttendance,
   distributeRewardPool,
-  PLATFORM_COMMISSION_RATE,
-  MAX_BONUS_MULTIPLIER,
 } from './challenge';
 
 // --- calculateRewardPoolTotal ---

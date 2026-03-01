@@ -7,7 +7,6 @@ import type { PaymentTransactionType } from '@/types';
 
 const WECHAT_APP_ID = process.env.WECHAT_PAY_APP_ID!;
 const WECHAT_MCH_ID = process.env.WECHAT_PAY_MCH_ID!;
-const WECHAT_API_KEY = process.env.WECHAT_PAY_API_KEY!;
 const WECHAT_NOTIFY_URL = process.env.WECHAT_PAY_NOTIFY_URL!;
 
 /**

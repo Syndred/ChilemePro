@@ -541,7 +541,7 @@ export async function checkTaskReminders(): Promise<
       .filter((id, index, arr) => arr.indexOf(id) === index);
 
     // Filter using pure logic
-    const usersToNotify = userIds.filter((userId) =>
+    const usersToNotify = userIds.filter(() =>
       shouldSendTaskReminder(true, false),
     );
 

@@ -6,7 +6,7 @@
  * health advice. The core analysis logic lives in nutrition-analysis.ts.
  */
 
-import type { NutritionAnalysis, HealthAdvice } from '@/types';
+import type { NutritionAnalysis } from '@/types';
 
 export interface GenerateAdviceInput {
   analysis: NutritionAnalysis;

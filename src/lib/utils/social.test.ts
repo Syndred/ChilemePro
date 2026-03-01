@@ -177,7 +177,6 @@ import {
   canFollow,
   validateReportReason,
   type FeedPost,
-  type NotificationInput,
 } from './social';
 
 // --- filterFeedPosts ---

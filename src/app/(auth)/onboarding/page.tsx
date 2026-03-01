@@ -55,8 +55,6 @@ export default function OnboardingPage() {
     },
   });
 
-  const watchedValues = form.watch();
-
   // Live calorie preview when all fields are filled
   const updateCaloriePreview = useCallback(() => {
     const { gender, weight, height, age, activityLevel } = form.getValues();

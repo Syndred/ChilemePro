@@ -10,7 +10,6 @@ import {
   buildNutritionAnalysis,
   buildHealthAdvice,
   UNDER_TARGET_THRESHOLD,
-  CALORIES_PER_GRAM,
   type DailyCalorieRecord,
   type DailyIntake,
 } from './nutrition-analysis';

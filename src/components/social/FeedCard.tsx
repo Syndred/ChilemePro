@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { Heart, MessageCircle, Trash2, MoreHorizontal } from 'lucide-react';
+import { Heart, MessageCircle, Trash2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { formatPostTime, canDeletePost } from '@/lib/utils/social';

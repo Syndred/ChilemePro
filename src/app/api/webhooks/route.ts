@@ -5,20 +5,34 @@ import {
   mapStripeStatus,
   fromStripeAmount,
   mapWechatTradeState,
-  fromWechatAmount,
   mapAlipayTradeStatus,
-  fromAlipayAmount,
   verifyWechatSignature,
   verifyAlipaySignature,
   getMembershipTierFromAmount,
   calculateMembershipExpiry,
 } from '@/lib/utils/payment';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-05-28.basil',
-});
+function getStripeWebhookConfig(): {
+  stripe: Stripe;
+  webhookSecret: string;
+} {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+  if (!secretKey) {
+    throw new Error('Missing STRIPE_SECRET_KEY environment variable');
+  }
+  if (!webhookSecret) {
+    throw new Error('Missing STRIPE_WEBHOOK_SECRET environment variable');
+  }
+
+  return {
+    stripe: new Stripe(secretKey, {
+      apiVersion: '2026-02-25.clover',
+    }),
+    webhookSecret,
+  };
+}
 
 /**
  * POST /api/webhooks
@@ -51,6 +65,18 @@ export async function POST(request: NextRequest) {
 // --- Stripe Webhook Handler ---
 
 async function handleStripeWebhook(request: NextRequest) {
+  let stripe: Stripe;
+  let webhookSecret: string;
+  try {
+    ({ stripe, webhookSecret } = getStripeWebhookConfig());
+  } catch (error) {
+    console.error('Stripe webhook config error:', error);
+    return NextResponse.json(
+      { error: 'Stripe webhook configuration is invalid' },
+      { status: 500 },
+    );
+  }
+
   const body = await request.text();
   const signature = request.headers.get('stripe-signature');
 

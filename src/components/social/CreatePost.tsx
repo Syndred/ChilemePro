@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import { ImagePlus, X, Loader2, Send } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -97,9 +98,12 @@ export default function CreatePost({ onSubmit, isSubmitting }: CreatePostProps) 
                 key={index}
                 className="relative aspect-square overflow-hidden rounded-md bg-muted"
               >
-                <img
+                <Image
                   src={img}
                   alt={`预览 ${index + 1}`}
+                  fill
+                  unoptimized
+                  sizes="(max-width: 768px) 33vw, 160px"
                   className="h-full w-full object-cover"
                 />
                 <button

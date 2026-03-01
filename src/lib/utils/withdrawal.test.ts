@@ -14,6 +14,7 @@ import {
   MAX_WITHDRAWAL_AMOUNT,
   WITHDRAWAL_FEE_RATES,
 } from './withdrawal';
+import type { WithdrawalMethod } from './withdrawal';
 
 // --- validateBalance ---
 
@@ -238,7 +239,7 @@ describe('buildWithdrawalRequest', () => {
     const result = buildWithdrawalRequest({
       amount: 50,
       balance: 100,
-      method: 'bitcoin' as any,
+      method: 'bitcoin' as unknown as WithdrawalMethod,
       account: 'addr_123',
     });
     expect(result.valid).toBe(false);

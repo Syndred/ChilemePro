@@ -223,7 +223,7 @@ export async function unlikePost(
       return { success: false, error: '请先登录' };
     }
 
-    const { error, count } = await supabase
+    const { error } = await supabase
       .from('post_likes')
       .delete()
       .eq('post_id', postId)

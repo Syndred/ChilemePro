@@ -8,7 +8,6 @@ import {
   shouldBanAccount,
   checkIdentityConsistency,
   validateChallengeEligibility,
-  buildAntiCheatLogEntry,
   type MealRecordTimestamp,
 } from '@/lib/utils/anti-cheat';
 import type { AntiCheatSeverity } from '@/types';
@@ -133,7 +132,7 @@ export async function validateChallengeAntiCheat(
       paymentAccount: '', // Payment account checked at payment time
       activeDeviceIds,
       activePhones,
-      activePaymentAccounts: [],
+      activePaymentAccounts,
     });
 
     // Log violations if any

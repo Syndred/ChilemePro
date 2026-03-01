@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { motion } from 'framer-motion';
 import {
   User,
@@ -82,9 +83,12 @@ export default function ProfilePage() {
               {/* Avatar */}
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/20">
                 {profile?.avatar ? (
-                  <img
+                  <Image
                     src={profile.avatar}
                     alt={profile.nickname}
+                    width={64}
+                    height={64}
+                    unoptimized
                     className="h-16 w-16 rounded-full object-cover"
                   />
                 ) : (

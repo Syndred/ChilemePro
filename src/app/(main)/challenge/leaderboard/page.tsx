@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { Trophy, Medal, ArrowLeft, Loader2, Users } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -137,11 +138,13 @@ function LeaderboardRow({
         {/* Avatar */}
         <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-muted">
           {entry.avatar ? (
-            <img
+            <Image
               src={entry.avatar}
               alt=""
+              width={36}
+              height={36}
+              unoptimized
               className="h-full w-full object-cover"
-              loading="lazy"
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">

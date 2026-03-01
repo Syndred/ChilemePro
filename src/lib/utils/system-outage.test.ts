@@ -11,10 +11,8 @@ import {
   isRefundOverdue,
   getAppealRefundAmount,
   getAffectedUserIds,
-  OUTAGE_NOTIFICATION_THRESHOLD_MS,
   MAX_APPEAL_REASON_LENGTH,
   MIN_APPEAL_REASON_LENGTH,
-  REFUND_PROCESSING_DAYS,
 } from './system-outage';
 
 // --- calculateOutageDuration ---

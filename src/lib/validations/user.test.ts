@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { userProfileSchema, userProfileInputSchema } from './user';
+import { userProfileSchema } from './user';
 
 const validProfile = {
   nickname: '测试用户',

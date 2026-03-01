@@ -2,16 +2,14 @@
 
 import { createClient } from '@/lib/supabase/server';
 import {
-  calculateOutageDuration,
   shouldAutoValidateTask,
   shouldNotifyUsers,
   checkOutageRefundEligibility,
   validateAppeal,
   getAffectedUserIds,
-  OUTAGE_NOTIFICATION_THRESHOLD_MS,
 } from '@/lib/utils/system-outage';
 import { CHALLENGE_DEPOSIT } from '@/lib/utils/challenge';
-import type { SystemOutage, UserAppeal, OutageRefund } from '@/types';
+import type { SystemOutage, UserAppeal } from '@/types';
 
 export interface ActionResult<T = void> {
   success: boolean;

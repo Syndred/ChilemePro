@@ -3,7 +3,6 @@ import {
   generateVerificationCode,
   isValidPhone,
   isPhoneLocked,
-  getLockoutRemainingMs,
   canSendCode,
   createVerificationAttempt,
   verifyCode,

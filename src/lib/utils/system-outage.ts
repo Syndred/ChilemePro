@@ -10,7 +10,6 @@
  */
 
 import type { OutageStatus, AppealStatus } from '@/types';
-import { CHALLENGE_DEPOSIT } from './challenge';
 
 // --- Constants ---
 

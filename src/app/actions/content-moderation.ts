@@ -29,7 +29,7 @@ export async function moderateContent(
   images: string[] = [],
 ): Promise<ActionResult<{ allowed: boolean; aiResult: AIModerationResult }>> {
   try {
-    const prompt = buildModerationPrompt(content, []);
+    const prompt = buildModerationPrompt(content, images);
 
     // Call GPT-4o for content moderation
     const apiKey = process.env.OPENAI_API_KEY;

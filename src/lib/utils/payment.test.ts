@@ -9,10 +9,8 @@ import {
   calculateMembershipExpiry,
   canRetryPayment,
   getPaymentDescription,
-  DEPOSIT_AMOUNT,
   MEMBERSHIP_PRICES,
   STRIPE_CURRENCY,
-  MIN_PAYMENT_AMOUNT,
   MAX_PAYMENT_AMOUNT,
 } from './payment';
 

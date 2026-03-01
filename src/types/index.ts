@@ -287,65 +287,6 @@ export interface LeaderboardEntry {
   lastCompletedAt: Date | null;
 }
 
-
-
-// --- Leaderboard Types ---
-
-export interface LeaderboardEntry {
-  rank: number;
-  userId: string;
-  nickname: string;
-  avatar: string;
-  completedDays: number;
-  /** Timestamp of the latest completed task (for tiebreaking) */
-  lastCompletedAt: Date | null;
-}
-
-// --- System Outage Types ---
-
-export type OutageStatus = 'active' | 'resolved';
-
-export type AppealStatus = 'pending' | 'approved' | 'rejected';
-
-export type RefundStatus = 'pending' | 'processing' | 'completed' | 'failed';
-
-export interface SystemOutage {
-  id: string;
-  startTime: Date;
-  endTime: Date | null;
-  description: string;
-  status: OutageStatus;
-  affectedServices: string[];
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface UserAppeal {
-  id: string;
-  userId: string;
-  challengeId: string | null;
-  outageId: string | null;
-  reason: string;
-  status: AppealStatus;
-  refundAmount: number | null;
-  processedAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface OutageRefund {
-  id: string;
-  userId: string;
-  challengeId: string;
-  outageId: string;
-  refundAmount: number;
-  status: RefundStatus;
-  processedAt: Date | null;
-  createdAt: Date;
-}
-
-
-
 // --- System Outage Types ---
 
 export type OutageStatus = 'active' | 'resolved';
