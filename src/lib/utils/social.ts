@@ -5,7 +5,7 @@
 // --- Constants ---
 
 /** Maximum number of photos per post */
-export const MAX_POST_IMAGES = 3;
+export const MAX_POST_IMAGES = 4;
 
 /** Maximum content length in characters */
 export const MAX_POST_CONTENT_LENGTH = 500;

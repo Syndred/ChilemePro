@@ -15,7 +15,7 @@ interface CreatePostProps {
 
 const MAX_IMAGE_SIZE_BYTES = 8 * 1024 * 1024;
 const MAX_COMPRESSED_IMAGE_BYTES = 450 * 1024;
-const MAX_TOTAL_IMAGE_BYTES = 1500 * 1024;
+const MAX_TOTAL_IMAGE_BYTES = 2200 * 1024;
 const IMAGE_MAX_EDGE = 1280;
 
 function formatImageSize(sizeInBytes: number): string {
@@ -37,6 +37,7 @@ function estimateDataUrlBytes(dataUrl: string): number {
   if (commaIndex < 0) {
     return dataUrl.length;
   }
+
   const base64 = dataUrl.slice(commaIndex + 1);
   return Math.ceil((base64.length * 3) / 4);
 }
@@ -104,6 +105,7 @@ export default function CreatePost({ onSubmit, isSubmitting = false }: CreatePos
       setError(`最多上传 ${MAX_POST_IMAGES} 张照片`);
       return;
     }
+
     fileInputRef.current?.click();
   };
 
@@ -165,7 +167,7 @@ export default function CreatePost({ onSubmit, isSubmitting = false }: CreatePos
       }
 
       if (files.length > remaining) {
-        setError(`最多还能再添加 ${remaining} 张照片，已自动忽略多余选择`);
+        setError(`最多上传 ${MAX_POST_IMAGES} 张图片，已自动忽略多余选择`);
         return;
       }
 
@@ -207,14 +209,16 @@ export default function CreatePost({ onSubmit, isSubmitting = false }: CreatePos
   return (
     <Card className="overflow-hidden border-orange-200/70 bg-gradient-to-br from-white via-orange-50/45 to-amber-50/65 shadow-[0_16px_35px_-20px_rgba(194,106,21,0.5)]">
       <CardContent className="space-y-3 p-4">
-        <div className="rounded-xl border border-orange-100/80 bg-white/85 p-3">
-          <Textarea
-            placeholder="分享这一餐的感受、做法或心得..."
-            value={content}
-            onChange={(e) => handleContentChange(e.target.value)}
-            className="min-h-[88px] resize-none border-0 bg-transparent p-0 text-sm focus-visible:ring-0"
-            maxLength={MAX_POST_CONTENT_LENGTH}
-          />
+        <div className="rounded-2xl bg-gradient-to-r from-amber-300/80 via-orange-300/85 to-yellow-300/80 p-[1.5px] shadow-[0_10px_24px_-18px_rgba(194,106,21,0.7)]">
+          <div className="rounded-[15px] bg-white/95 px-4 py-3">
+            <Textarea
+              placeholder="分享这一餐的感受、做法或心得..."
+              value={content}
+              onChange={(e) => handleContentChange(e.target.value)}
+              className="min-h-[96px] resize-none border-0 bg-transparent p-0 text-sm leading-relaxed focus-visible:ring-0"
+              maxLength={MAX_POST_CONTENT_LENGTH}
+            />
+          </div>
         </div>
 
         <div className="flex items-center justify-between text-xs text-slate-500">
@@ -226,7 +230,7 @@ export default function CreatePost({ onSubmit, isSubmitting = false }: CreatePos
           </span>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           {images.map((img, index) => (
             <div
               key={`${img.slice(0, 24)}-${index}`}
@@ -257,7 +261,7 @@ export default function CreatePost({ onSubmit, isSubmitting = false }: CreatePos
               onClick={handleAddImageClick}
               disabled={isReadingImages || isSubmitting}
               className={`rounded-lg border border-dashed border-orange-300 bg-white/85 transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-70 ${
-                images.length === 0 ? 'col-span-3 flex h-24 items-center justify-center' : 'aspect-square'
+                images.length === 0 ? 'col-span-2 flex h-24 items-center justify-center' : 'aspect-square'
               }`}
               aria-label="添加图片"
               aria-busy={isReadingImages}

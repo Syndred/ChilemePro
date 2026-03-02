@@ -150,8 +150,8 @@ describe('formatPostTime', () => {
 });
 
 describe('constants', () => {
-  it('MAX_POST_IMAGES is 3', () => {
-    expect(MAX_POST_IMAGES).toBe(3);
+  it('MAX_POST_IMAGES is 4', () => {
+    expect(MAX_POST_IMAGES).toBe(4);
   });
 
   it('MAX_POST_CONTENT_LENGTH is 500', () => {

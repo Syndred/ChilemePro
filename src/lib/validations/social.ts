@@ -17,7 +17,7 @@ const imageInputSchema = z.string().refine(
 
 export const createPostSchema = z.object({
   content: z.string().max(500, '动态内容最多 500 字'),
-  images: z.array(imageInputSchema).max(3, '最多上传 3 张照片'),
+  images: z.array(imageInputSchema).max(4, '最多上传 4 张照片'),
   mealRecordId: z.string().uuid().optional(),
 });
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Loader2, Sparkles, Users } from 'lucide-react';
 import FeedCard from '@/components/social/FeedCard';
@@ -47,12 +47,12 @@ interface CommentSubmitResult {
 }
 
 export default function SocialPage() {
-  const queryClient = useQueryClient();
   const [pageError, setPageError] = useState<string | null>(null);
   const [deletingPostIds, setDeletingPostIds] = useState<string[]>([]);
   const [likingPostIds, setLikingPostIds] = useState<string[]>([]);
   const [submittingCommentPostIds, setSubmittingCommentPostIds] = useState<string[]>([]);
   const [deletingCommentIds, setDeletingCommentIds] = useState<string[]>([]);
+  const [feedSyncingCount, setFeedSyncingCount] = useState(0);
 
   const feedQuery = useQuery({
     queryKey: SOCIAL_FEED_QUERY_KEY,
@@ -79,9 +79,8 @@ export default function SocialPage() {
   });
 
   const likeMutation = useMutation({
-    mutationFn: ({ postId, isLiked }: { postId: string; isLiked: boolean }) => {
-      return isLiked ? unlikePost(postId) : likePost(postId);
-    },
+    mutationFn: ({ postId, isLiked }: { postId: string; isLiked: boolean }) =>
+      isLiked ? unlikePost(postId) : likePost(postId),
   });
 
   const commentMutation = useMutation({
@@ -96,41 +95,23 @@ export default function SocialPage() {
   const posts = useMemo<SocialPost[]>(() => feedQuery.data ?? [], [feedQuery.data]);
   const currentUserId = userQuery.data ?? undefined;
   const isLoading = feedQuery.isLoading || userQuery.isLoading;
+  const isFeedSyncing = feedSyncingCount > 0;
 
-  const refreshFeedInBackground = () => {
-    void queryClient.invalidateQueries({ queryKey: ['socialFeed'] });
-  };
-
-  const pushCreatedPostToFeedCache = (post: SocialPost) => {
-    queryClient.setQueryData<SocialPost[]>(SOCIAL_FEED_QUERY_KEY, (previous) => {
-      const safePrevious = previous ?? [];
-      return [post, ...safePrevious.filter((item) => item.id !== post.id)];
-    });
-  };
-
-  const removePostFromFeedCache = (postId: string) => {
-    queryClient.setQueryData<SocialPost[]>(SOCIAL_FEED_QUERY_KEY, (previous) =>
-      (previous ?? []).filter((item) => item.id !== postId),
-    );
-  };
-
-  const replacePostInFeedCache = (temporaryId: string, realPost: SocialPost) => {
-    queryClient.setQueryData<SocialPost[]>(SOCIAL_FEED_QUERY_KEY, (previous) => {
-      const safePrevious = previous ?? [];
-      const replaced = safePrevious.map((item) => (item.id === temporaryId ? realPost : item));
-      return replaced.filter(
-        (item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index,
-      );
-    });
-  };
-
-  const resolveCurrentUserMeta = () => {
-    const fallback = { nickname: '我', avatar: '' };
-    if (!currentUserId) {
-      return fallback;
+  const syncFeedWithLoading = async (): Promise<boolean> => {
+    setFeedSyncingCount((prev) => prev + 1);
+    try {
+      const refreshed = await feedQuery.refetch();
+      if (refreshed.error) {
+        throw refreshed.error;
+      }
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '同步动态失败，请稍后重试';
+      setPageError(message);
+      return false;
+    } finally {
+      setFeedSyncingCount((prev) => Math.max(0, prev - 1));
     }
-    const found = posts.find((post) => post.userId === currentUserId)?.user;
-    return found ?? fallback;
   };
 
   const handleCreatePost = async (input: {
@@ -138,40 +119,19 @@ export default function SocialPage() {
     images: string[];
   }): Promise<{ success: boolean; error?: string }> => {
     setPageError(null);
-    const temporaryId = `optimistic-${Date.now()}`;
-    const now = new Date();
-    const optimisticPost: SocialPost = {
-      id: temporaryId,
-      userId: currentUserId ?? temporaryId,
-      user: resolveCurrentUserMeta(),
-      content: input.content.trim(),
-      images: input.images,
-      mealRecordId: null,
-      likes: 0,
-      comments: [],
-      isLiked: false,
-      status: 'published',
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    pushCreatedPostToFeedCache(optimisticPost);
     const result = await createMutation.mutateAsync(input);
 
     if (!result.success) {
       const message = result.error ?? '发布动态失败，请稍后重试';
-      removePostFromFeedCache(temporaryId);
       setPageError(message);
       return { success: false, error: message };
     }
 
-    if (result.data) {
-      replacePostInFeedCache(temporaryId, result.data);
-    } else {
-      removePostFromFeedCache(temporaryId);
+    const synced = await syncFeedWithLoading();
+    if (!synced) {
+      setPageError('动态已发布，但刷新列表失败，请稍后重试');
     }
 
-    refreshFeedInBackground();
     return { success: true };
   };
 
@@ -185,7 +145,11 @@ export default function SocialPage() {
         setPageError(result.error ?? '删除失败，请重试');
         return;
       }
-      refreshFeedInBackground();
+
+      const synced = await syncFeedWithLoading();
+      if (!synced) {
+        setPageError('删除成功，但刷新列表失败，请稍后重试');
+      }
     } finally {
       setDeletingPostIds((prev) => removeFromList(prev, postId));
     }
@@ -201,7 +165,11 @@ export default function SocialPage() {
         setPageError(result.error ?? '操作失败，请重试');
         return;
       }
-      refreshFeedInBackground();
+
+      const synced = await syncFeedWithLoading();
+      if (!synced) {
+        setPageError('操作成功，但刷新列表失败，请稍后重试');
+      }
     } finally {
       setLikingPostIds((prev) => removeFromList(prev, postId));
     }
@@ -221,7 +189,12 @@ export default function SocialPage() {
         setPageError(message);
         return { success: false, error: message };
       }
-      refreshFeedInBackground();
+
+      const synced = await syncFeedWithLoading();
+      if (!synced) {
+        return { success: false, error: '评论成功，但刷新列表失败，请重试' };
+      }
+
       return { success: true };
     } finally {
       setSubmittingCommentPostIds((prev) => removeFromList(prev, postId));
@@ -238,7 +211,11 @@ export default function SocialPage() {
         setPageError(result.error ?? '删除评论失败，请重试');
         return;
       }
-      refreshFeedInBackground();
+
+      const synced = await syncFeedWithLoading();
+      if (!synced) {
+        setPageError('删除评论成功，但刷新列表失败，请稍后重试');
+      }
     } finally {
       setDeletingCommentIds((prev) => removeFromList(prev, commentId));
     }
@@ -268,7 +245,7 @@ export default function SocialPage() {
           <div className="min-w-0">
             <h1 className="text-xl font-bold tracking-tight text-orange-900">饮食朋友圈</h1>
             <p className="mt-1 text-sm text-orange-800/85">
-              分享每日饮食、互相鼓励打卡，动态会尽量实时同步到列表。
+              分享每日饮食、互相鼓励打卡，操作完成后会自动同步最新内容。
             </p>
           </div>
         </div>
@@ -285,7 +262,10 @@ export default function SocialPage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.24 }}
       >
-        <CreatePost onSubmit={handleCreatePost} isSubmitting={createMutation.isPending} />
+        <CreatePost
+          onSubmit={handleCreatePost}
+          isSubmitting={createMutation.isPending || isFeedSyncing}
+        />
       </motion.div>
 
       {posts.length === 0 ? (
@@ -319,13 +299,15 @@ export default function SocialPage() {
         </div>
       )}
 
-      {(deleteMutation.isPending ||
+      {(createMutation.isPending ||
+        deleteMutation.isPending ||
         commentMutation.isPending ||
         deleteCommentMutation.isPending ||
-        likeMutation.isPending) ? (
+        likeMutation.isPending ||
+        isFeedSyncing) ? (
         <p className="inline-flex items-center gap-1 text-xs text-orange-700">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          操作处理中...
+          正在同步最新动态...
         </p>
       ) : null}
     </div>

@@ -18,8 +18,8 @@ describe('createPostSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('rejects more than 3 images', () => {
-    const images = Array.from({ length: 4 }, (_, i) => `https://example.com/img${i}.jpg`);
+  it('rejects more than 4 images', () => {
+    const images = Array.from({ length: 5 }, (_, i) => `https://example.com/img${i}.jpg`);
     const result = createPostSchema.safeParse({
       content: '测试',
       images,
@@ -27,8 +27,8 @@ describe('createPostSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('accepts exactly 3 images', () => {
-    const images = Array.from({ length: 3 }, (_, i) => `https://example.com/img${i}.jpg`);
+  it('accepts exactly 4 images', () => {
+    const images = Array.from({ length: 4 }, (_, i) => `https://example.com/img${i}.jpg`);
     const result = createPostSchema.safeParse({
       content: '测试',
       images,
