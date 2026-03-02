@@ -11,6 +11,18 @@ export interface ActionResult<T = void> {
   error?: string;
 }
 
+export interface DailyCalorieStat {
+  date: string;
+  calories: number;
+}
+
+function toLocalDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 /**
  * Map a database meal_record row + food_items to our MealRecord type.
  */
@@ -330,6 +342,106 @@ export async function getMealRecordsByDate(
     );
 
     return { success: true, data: records };
+  } catch {
+    return { success: false, error: '服务器错误，请重试' };
+  }
+}
+
+/**
+ * Get one meal record by id (with ownership verification).
+ */
+export async function getMealRecordById(
+  id: string,
+): Promise<ActionResult<MealRecord>> {
+  if (!id) {
+    return { success: false, error: '记录 ID 不能为空' };
+  }
+
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { success: false, error: '请先登录' };
+    }
+
+    const { data: mealRow, error } = await supabase
+      .from('meal_records')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error || !mealRow) {
+      return { success: false, error: '记录不存在' };
+    }
+
+    if (mealRow.user_id !== user.id) {
+      return { success: false, error: '无权访问该记录' };
+    }
+
+    const { data: foodRows } = await supabase
+      .from('food_items')
+      .select('*')
+      .eq('meal_record_id', id)
+      .order('created_at', { ascending: true });
+
+    return {
+      success: true,
+      data: mapMealRecord(mealRow, foodRows ?? []),
+    };
+  } catch {
+    return { success: false, error: '服务器错误，请重试' };
+  }
+}
+
+/**
+ * Get daily calorie totals in a date range.
+ * Used by stats page to avoid N per-day queries.
+ */
+export async function getDailyCalorieStats(
+  startDate: Date,
+  endDate: Date,
+): Promise<ActionResult<DailyCalorieStat[]>> {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { success: false, error: '请先登录' };
+    }
+
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    const { data: rows, error } = await supabase
+      .from('meal_records')
+      .select('recorded_at, total_calories')
+      .eq('user_id', user.id)
+      .gte('recorded_at', start.toISOString())
+      .lte('recorded_at', end.toISOString());
+
+    if (error) {
+      return { success: false, error: '查询统计数据失败，请重试' };
+    }
+
+    const totals = new Map<string, number>();
+
+    for (const row of rows ?? []) {
+      const key = toLocalDateKey(new Date(row.recorded_at as string));
+      const current = totals.get(key) ?? 0;
+      totals.set(key, current + Number(row.total_calories ?? 0));
+    }
+
+    const data: DailyCalorieStat[] = [...totals.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, calories]) => ({
+        date,
+        calories: Math.round(calories),
+      }));
+
+    return { success: true, data };
   } catch {
     return { success: false, error: '服务器错误，请重试' };
   }

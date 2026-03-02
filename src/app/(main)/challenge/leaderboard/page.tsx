@@ -4,8 +4,9 @@ import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
-import { Trophy, Medal, ArrowLeft, Loader2, Users } from 'lucide-react';
+import { Trophy, Medal, ArrowLeft, Users } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { MainPageSkeleton } from '@/components/skeleton/PageSkeletons';
 import { getLeaderboard } from '@/app/actions/challenge';
 
 /**
@@ -26,11 +27,7 @@ export default function LeaderboardPage() {
   });
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <MainPageSkeleton />;
   }
 
   const entries = result?.success ? result.data?.entries ?? [] : [];

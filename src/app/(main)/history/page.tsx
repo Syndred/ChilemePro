@@ -1,18 +1,21 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 
 import { getMealRecordsByDate, deleteMealRecord } from '@/app/actions/meal';
 import { getUserProfile } from '@/app/actions/user';
 import { calculateDailyTotals } from '@/lib/utils/food-calorie';
 import { MealRecordCard } from '@/components/meal/MealRecordCard';
+import { MealRecordListSkeleton } from '@/components/skeleton/PageSkeletons';
 import { CalorieProgress } from '@/components/home/CalorieProgress';
 import { NutritionBreakdown } from '@/components/home/NutritionBreakdown';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Card, CardContent } from '@/components/ui/card';
+import type { MealRecord } from '@/types';
 
 /**
  * History page — view meal records for any past date.
@@ -23,6 +26,7 @@ import { Card, CardContent } from '@/components/ui/card';
  * Requirement 6.5: Recalculate daily calorie statistics after deletion
  */
 export default function HistoryPage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
@@ -57,6 +61,10 @@ export default function HistoryPage() {
         queryKey: ['meals', selectedDate.toDateString()],
       });
     }
+  };
+
+  const handleEdit = (record: MealRecord) => {
+    router.push(`/add-meal?edit=${record.id}`);
   };
 
   const isToday =
@@ -103,9 +111,7 @@ export default function HistoryPage() {
           {isToday ? '今日记录' : '当日记录'}
         </h2>
         {isLoading ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
+          <MealRecordListSkeleton count={3} />
         ) : meals.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
             该日暂无饮食记录
@@ -115,6 +121,7 @@ export default function HistoryPage() {
             <MealRecordCard
               key={record.id}
               record={record}
+              onEdit={handleEdit}
               onDelete={handleDelete}
             />
           ))

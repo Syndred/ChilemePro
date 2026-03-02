@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { MainPageSkeleton } from '@/components/skeleton/PageSkeletons';
 import { getActiveChallenge, cancelChallenge } from '@/app/actions/challenge';
 import { getPaymentStatus } from '@/app/actions/payment';
 import { DAILY_REWARDS, CHALLENGE_DEPOSIT } from '@/lib/utils/challenge';
@@ -62,11 +63,7 @@ export default function ChallengePage() {
   });
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <MainPageSkeleton />;
   }
 
   const challenge = result?.success ? result.data : null;

@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { NumberStepperField } from '@/components/form/NumberStepperField';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   getRewardBalance,
   getRewardHistory,
@@ -77,8 +78,11 @@ export default function RewardsPage() {
         <Card className="mb-6 bg-gradient-to-br from-orange-50 to-yellow-50">
           <CardContent className="pt-6">
             {balanceLoading ? (
-              <div className="flex justify-center py-4">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <div className="space-y-3 py-2">
+                <Skeleton className="mx-auto h-4 w-24" />
+                <Skeleton className="mx-auto h-10 w-40" />
+                <Skeleton className="mx-auto h-4 w-32" />
+                <Skeleton className="h-10 w-full" />
               </div>
             ) : (
               <div className="text-center">
@@ -131,8 +135,10 @@ export default function RewardsPage() {
           </CardHeader>
           <CardContent>
             {historyLoading ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <div className="space-y-3 py-2">
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-16 w-full" />
               </div>
             ) : history.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">

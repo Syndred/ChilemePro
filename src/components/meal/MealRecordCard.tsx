@@ -26,40 +26,51 @@ interface MealRecordCardProps {
 }
 
 export function MealRecordCard({ record, onEdit, onDelete }: MealRecordCardProps) {
+  const recordedTimeLabel = new Date(record.recordedAt).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
   return (
     <Card className="py-4">
-      <CardHeader className="flex-row items-center justify-between pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <span>{MEAL_TYPE_EMOJI[record.mealType]}</span>
-          <span>{MEAL_TYPE_LABELS[record.mealType]}</span>
-          <span className="text-sm font-normal text-muted-foreground">
-            {record.totalCalories} 千卡
-          </span>
-        </CardTitle>
-        <div className="flex gap-1">
-          {onEdit && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => onEdit(record)}
-              aria-label="编辑记录"
-            >
-              <Edit2 className="h-4 w-4" />
-            </Button>
-          )}
-          {onDelete && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-destructive"
-              onClick={() => onDelete(record.id)}
-              aria-label="删除记录"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          )}
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <span>{MEAL_TYPE_EMOJI[record.mealType]}</span>
+            <span>{MEAL_TYPE_LABELS[record.mealType]}</span>
+            <span className="text-sm font-normal text-muted-foreground">
+              {record.totalCalories} 千卡
+            </span>
+          </CardTitle>
+          <div className="flex gap-1">
+            {onEdit && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => onEdit(record)}
+                aria-label="编辑记录"
+              >
+                <Edit2 className="h-4 w-4" />
+              </Button>
+            )}
+            {onDelete && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-destructive"
+                onClick={() => onDelete(record.id)}
+                aria-label="删除记录"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </div>
+        <p className="text-xs text-muted-foreground">记录时间：{recordedTimeLabel}</p>
       </CardHeader>
       <CardContent className="space-y-2">
         {/* Food items list */}

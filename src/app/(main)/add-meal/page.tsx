@@ -1,16 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Minus, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { MainPageSkeleton } from '@/components/skeleton/PageSkeletons';
 import { FoodSearch, type FoodSearchItem } from '@/components/meal/FoodSearch';
 import { calculateFoodNutrition, calculateMealTotals } from '@/lib/utils/food-calorie';
-import { createMealRecord } from '@/app/actions/meal';
+import { createMealRecord, getMealRecordById, updateMealRecord } from '@/app/actions/meal';
 import { enqueueSync, cacheMealRecord } from '@/lib/offline/offline-store';
 import { clampNumber, parseOptionalNumber } from '@/lib/validations/number';
 import type { MealType, RecognizedFood } from '@/types';
@@ -51,10 +52,14 @@ function mapRecognizedFoodToAdded(food: RecognizedFood, index: number): AddedFoo
 
 export default function AddMealPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const editId = searchParams.get('edit');
   const [mealType, setMealType] = useState<MealType>('lunch');
   const [foods, setFoods] = useState<AddedFood[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingRecord, setIsLoadingRecord] = useState(false);
+  const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const navigateToHomeWithFreshData = async () => {
@@ -67,6 +72,10 @@ export default function AddMealPage() {
   };
 
   useEffect(() => {
+    if (editId) {
+      return;
+    }
+
     try {
       const raw = sessionStorage.getItem('ai-recognized-foods');
       if (!raw) {
@@ -80,7 +89,56 @@ export default function AddMealPage() {
     } catch {
       // Ignore malformed cache
     }
-  }, []);
+  }, [editId]);
+
+  useEffect(() => {
+    if (!editId) {
+      setEditingRecordId(null);
+      return;
+    }
+    const targetEditId = editId;
+
+    let cancelled = false;
+
+    async function loadEditingRecord() {
+      setIsLoadingRecord(true);
+      const result = await getMealRecordById(targetEditId);
+
+      if (cancelled) {
+        return;
+      }
+
+      if (!result.success || !result.data) {
+        setError(result.error ?? '加载记录失败，请重试');
+        setIsLoadingRecord(false);
+        return;
+      }
+
+      const record = result.data;
+      setEditingRecordId(record.id);
+      setMealType(record.mealType);
+      setFoods(
+        record.foods.map((food, index) => ({
+          key: `${food.id}-${index}`,
+          name: food.name,
+          calories: food.calories,
+          protein: food.protein,
+          fat: food.fat,
+          carbs: food.carbs,
+          serving: food.serving,
+          unit: food.unit,
+        })),
+      );
+      setError(null);
+      setIsLoadingRecord(false);
+    }
+
+    loadEditingRecord();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [editId]);
 
   const handleFoodSelect = (food: FoodSearchItem) => {
     const nutrition = calculateFoodNutrition({
@@ -202,13 +260,24 @@ export default function AddMealPage() {
     };
 
     try {
+      if (editingRecordId && !navigator.onLine) {
+        setError('离线状态下暂不支持编辑记录，请联网后重试');
+        return;
+      }
+
       if (!navigator.onLine) {
         await queueOfflineRecord();
         await navigateToHomeWithFreshData();
         return;
       }
 
-      const result = await createMealRecord(payload);
+      const result = editingRecordId
+        ? await updateMealRecord(editingRecordId, {
+            mealType,
+            foods: payload.foods,
+          })
+        : await createMealRecord(payload);
+
       if (result.success) {
         await navigateToHomeWithFreshData();
         return;
@@ -234,13 +303,17 @@ export default function AddMealPage() {
     }
   };
 
+  if (isLoadingRecord) {
+    return <MainPageSkeleton />;
+  }
+
   return (
     <div className="mx-auto max-w-lg px-4 py-4">
       <div className="mb-4 flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => router.back()} aria-label="返回">
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <h1 className="text-lg font-semibold">添加饮食记录</h1>
+        <h1 className="text-lg font-semibold">{editingRecordId ? '编辑饮食记录' : '添加饮食记录'}</h1>
       </div>
 
       <div className="mb-4">
@@ -357,7 +430,7 @@ export default function AddMealPage() {
       )}
 
       <Button className="w-full" size="lg" onClick={handleSubmit} disabled={isSubmitting || foods.length === 0}>
-        {isSubmitting ? '保存中...' : '保存记录'}
+        {isSubmitting ? (editingRecordId ? '更新中...' : '保存中...') : editingRecordId ? '更新记录' : '保存记录'}
       </Button>
     </div>
   );

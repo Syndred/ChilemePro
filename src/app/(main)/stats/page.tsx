@@ -13,13 +13,14 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { getMealRecordsByDate } from '@/app/actions/meal';
+import { getDailyCalorieStats } from '@/app/actions/meal';
 import { getWeightRecords } from '@/app/actions/weight';
 import { getUserProfile } from '@/app/actions/user';
+import { StatsPageSkeleton } from '@/components/skeleton/PageSkeletons';
 import { WeightInput } from '@/components/stats/WeightInput';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, TrendingDown, TrendingUp, Minus } from 'lucide-react';
+import { TrendingDown, TrendingUp, Minus } from 'lucide-react';
 
 type Period = 'week' | 'month';
 type DailyCalorieData = { date: string; calories: number };
@@ -29,11 +30,6 @@ function toLocalDateKey(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
-}
-
-function parseLocalDateKey(dateKey: string): Date {
-  const [year, month, day] = dateKey.split('-').map(Number);
-  return new Date(year, month - 1, day, 12, 0, 0, 0);
 }
 
 /** Get date range for a given period ending today. */
@@ -86,7 +82,7 @@ export default function StatsPage() {
     queryFn: () => getUserProfile(),
   });
 
-  // Fetch meal records for each day in the range
+  // Fetch calorie totals once for the whole range (faster than per-day calls)
   const {
     data: calorieData,
     isLoading: calorieLoading,
@@ -94,20 +90,16 @@ export default function StatsPage() {
   } = useQuery<DailyCalorieData[]>({
     queryKey: ['calorieStats', period],
     queryFn: async () => {
-      const results = await Promise.all(
-        dateLabels.map(async (dateStr) => {
-          const result = await getMealRecordsByDate(parseLocalDateKey(dateStr));
-          if (!result.success) {
-            throw new Error(result.error ?? '加载热量统计失败');
-          }
-          const totalCalories = (result.data ?? []).reduce(
-            (sum, m) => sum + m.totalCalories,
-            0,
-          );
-          return { date: dateStr, calories: Math.round(totalCalories) };
-        }),
-      );
-      return results;
+      const result = await getDailyCalorieStats(start, end);
+      if (!result.success) {
+        throw new Error(result.error ?? '加载热量统计失败');
+      }
+
+      const byDate = new Map((result.data ?? []).map((item) => [item.date, item.calories]));
+      return dateLabels.map((date) => ({
+        date,
+        calories: byDate.get(date) ?? 0,
+      }));
     },
   });
 
@@ -168,11 +160,7 @@ export default function StatsPage() {
   const isLoading = calorieLoading || weightLoading;
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <StatsPageSkeleton />;
   }
 
   if (queryErrorMessage) {

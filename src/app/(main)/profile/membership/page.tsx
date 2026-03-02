@@ -6,6 +6,7 @@ import { ArrowLeft, Check, Crown, Sparkles, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { MainPageSkeleton } from '@/components/skeleton/PageSkeletons';
 import { getMembershipStatus } from '@/app/actions/membership';
 import { getPaymentStatus } from '@/app/actions/payment';
 import {
@@ -116,11 +117,7 @@ export default function MembershipPage() {
   const savingsPercent = getYearlySavingsPercent();
 
   if (loading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <MainPageSkeleton />;
   }
 
   return (

@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { MainPageSkeleton } from '@/components/skeleton/PageSkeletons';
 import {
   Dialog,
   DialogContent,
@@ -171,11 +172,7 @@ export default function SettingsPage() {
   }, [router]);
 
   if (loading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <MainPageSkeleton />;
   }
 
   return (

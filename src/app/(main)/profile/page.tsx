@@ -16,12 +16,12 @@ import {
   ChevronRight,
   Flame,
   Calendar,
-  Loader2,
   Copy,
   Check,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { MainPageSkeleton } from '@/components/skeleton/PageSkeletons';
 import { getProfileSummary } from '@/app/actions/profile';
 import {
   generateInviteInfo,
@@ -62,11 +62,7 @@ export default function ProfilePage() {
   }, [profile]);
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <MainPageSkeleton />;
   }
 
   return (

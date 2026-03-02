@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { NumberStepperField } from '@/components/form/NumberStepperField';
+import { MainPageSkeleton } from '@/components/skeleton/PageSkeletons';
 import {
   Select,
   SelectContent,
@@ -199,11 +200,7 @@ export default function EditProfilePage() {
   );
 
   if (loading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <MainPageSkeleton />;
   }
 
   return (

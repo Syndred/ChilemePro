@@ -1,16 +1,19 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import { CalorieProgress } from '@/components/home/CalorieProgress';
 import { NutritionBreakdown } from '@/components/home/NutritionBreakdown';
 import { MealRecordCard } from '@/components/meal/MealRecordCard';
+import { MealRecordListSkeleton } from '@/components/skeleton/PageSkeletons';
 import { getMealRecordsByDate } from '@/app/actions/meal';
 import { getUserProfile } from '@/app/actions/user';
 import { deleteMealRecord } from '@/app/actions/meal';
 import { calculateDailyTotals } from '@/lib/utils/food-calorie';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, History } from 'lucide-react';
+import { History } from 'lucide-react';
 import Link from 'next/link';
+import type { MealRecord } from '@/types';
 
 /**
  * Home page — today's calorie tracking dashboard.
@@ -18,6 +21,7 @@ import Link from 'next/link';
  * Requirement 5.5: Real-time update when adding/deleting meal records
  */
 export default function HomePage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const today = new Date();
 
@@ -53,6 +57,10 @@ export default function HomePage() {
       // Invalidate to trigger re-fetch — real-time update (Req 5.5)
       queryClient.invalidateQueries({ queryKey: ['meals'] });
     }
+  };
+
+  const handleEdit = (record: MealRecord) => {
+    router.push(`/add-meal?edit=${record.id}`);
   };
 
   return (
@@ -91,9 +99,7 @@ export default function HomePage() {
       <div className="space-y-2">
         <h2 className="text-sm font-medium text-muted-foreground">今日记录</h2>
         {isLoading ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
+          <MealRecordListSkeleton count={3} />
         ) : meals.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
             还没有记录，去添加一餐吧 🍽️
@@ -103,6 +109,7 @@ export default function HomePage() {
             <MealRecordCard
               key={record.id}
               record={record}
+              onEdit={handleEdit}
               onDelete={handleDelete}
             />
           ))

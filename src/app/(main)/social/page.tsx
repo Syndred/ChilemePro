@@ -3,9 +3,10 @@
 import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Loader2, Users } from 'lucide-react';
+import { Users } from 'lucide-react';
 import FeedCard from '@/components/social/FeedCard';
 import CreatePost from '@/components/social/CreatePost';
+import { SocialPageSkeleton } from '@/components/skeleton/PageSkeletons';
 import {
   createPost,
   deletePost,
@@ -79,11 +80,7 @@ export default function SocialPage() {
   const isLoading = feedQuery.isLoading || userQuery.isLoading;
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <SocialPageSkeleton />;
   }
 
   return (
