@@ -37,14 +37,22 @@ async function processOfflineQueue() {
             serving: number;
             unit: string;
           }>;
+          imageUrls?: string[];
+          /** Backward compatibility for old queued payloads. */
           imageUrl?: string;
           recordedAt: string;
         };
 
+        const normalizedImageUrls = Array.isArray(payload.imageUrls)
+          ? payload.imageUrls
+          : payload.imageUrl
+            ? [payload.imageUrl]
+            : undefined;
+
         const result = await createMealRecord({
           mealType: payload.mealType,
           foods: payload.foods,
-          imageUrl: payload.imageUrl,
+          imageUrls: normalizedImageUrls,
           recordedAt: new Date(payload.recordedAt),
         });
 

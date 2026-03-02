@@ -9,7 +9,6 @@ const imageUrlSchema = z.string().refine(
     if (value.startsWith('data:image/')) {
       return dataUrlImageRegex.test(value);
     }
-
     return z.string().url().safeParse(value).success;
   },
   {
@@ -17,12 +16,17 @@ const imageUrlSchema = z.string().refine(
   },
 );
 
+const imageUrlsSchema = z
+  .array(imageUrlSchema)
+  .min(1, '至少上传一张图片')
+  .max(3, '每餐最多上传3张图片');
+
 export const foodItemSchema = z.object({
   name: z.string().min(1, '食物名称不能为空').max(100, '食物名称最多100个字符'),
   calories: z.number().min(0, '热量不能为负数'),
   protein: z.number().min(0, '蛋白质不能为负数'),
   fat: z.number().min(0, '脂肪不能为负数'),
-  carbs: z.number().min(0, '碳水化合物不能为负数'),
+  carbs: z.number().min(0, '碳水不能为负数'),
   serving: z.number().positive('份量必须大于0'),
   unit: z.string().min(1, '单位不能为空').max(20),
 });
@@ -30,6 +34,8 @@ export const foodItemSchema = z.object({
 export const createMealRecordSchema = z.object({
   mealType: mealTypeSchema,
   foods: z.array(foodItemSchema).min(1, '至少添加一种食物'),
+  imageUrls: imageUrlsSchema.optional(),
+  /** Backward compatibility for old payloads. */
   imageUrl: imageUrlSchema.optional(),
   recordedAt: z.coerce.date(),
 });
@@ -37,6 +43,8 @@ export const createMealRecordSchema = z.object({
 export const updateMealRecordSchema = z.object({
   mealType: mealTypeSchema.optional(),
   foods: z.array(foodItemSchema).min(1, '至少添加一种食物').optional(),
+  imageUrls: imageUrlsSchema.nullable().optional(),
+  /** Backward compatibility for old payloads. */
   imageUrl: imageUrlSchema.nullable().optional(),
 });
 

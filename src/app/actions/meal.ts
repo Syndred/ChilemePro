@@ -23,6 +23,72 @@ function toLocalDateKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function parseMealImageUrls(imageField: unknown): string[] {
+  if (typeof imageField !== 'string') {
+    return [];
+  }
+
+  const raw = imageField.trim();
+  if (!raw) {
+    return [];
+  }
+
+  if (!raw.startsWith('[')) {
+    return [raw];
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [raw];
+    }
+
+    return parsed
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .slice(0, 3);
+  } catch {
+    return [raw];
+  }
+}
+
+function normalizeImageUrlsInput(
+  imageUrls: string[] | null | undefined,
+  imageUrl: string | null | undefined,
+): string[] | null | undefined {
+  if (imageUrls !== undefined) {
+    if (imageUrls === null) {
+      return null;
+    }
+    return imageUrls.slice(0, 3);
+  }
+
+  if (imageUrl !== undefined) {
+    if (imageUrl === null) {
+      return null;
+    }
+    return [imageUrl];
+  }
+
+  return undefined;
+}
+
+function serializeMealImageUrls(imageUrls: string[] | null | undefined): string | null {
+  if (!imageUrls || imageUrls.length === 0) {
+    return null;
+  }
+
+  const normalized = imageUrls
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .slice(0, 3);
+
+  if (normalized.length === 0) {
+    return null;
+  }
+
+  return normalized.length === 1 ? normalized[0] : JSON.stringify(normalized);
+}
+
 /**
  * Map a database meal_record row + food_items to our MealRecord type.
  */
@@ -30,6 +96,7 @@ function mapMealRecord(
   row: Record<string, unknown>,
   foodRows: Record<string, unknown>[],
 ): MealRecord {
+  const imageUrls = parseMealImageUrls(row.image_url);
   const foods: FoodItem[] = foodRows.map((f) => ({
     id: f.id as string,
     mealRecordId: f.meal_record_id as string,
@@ -52,7 +119,8 @@ function mapMealRecord(
     totalProtein: Number(row.total_protein ?? 0),
     totalFat: Number(row.total_fat ?? 0),
     totalCarbs: Number(row.total_carbs ?? 0),
-    imageUrl: (row.image_url as string) ?? null,
+    imageUrls,
+    imageUrl: imageUrls[0] ?? null,
     recordedAt: new Date(row.recorded_at as string),
     createdAt: new Date(row.created_at as string),
     updatedAt: new Date(row.updated_at as string),
@@ -72,7 +140,8 @@ export async function createMealRecord(
     return { success: false, error: parsed.error.issues[0].message };
   }
 
-  const { mealType, foods, imageUrl, recordedAt } = parsed.data;
+  const { mealType, foods, imageUrls, imageUrl, recordedAt } = parsed.data;
+  const normalizedImageUrls = normalizeImageUrlsInput(imageUrls, imageUrl);
 
   // Calculate totals from food items using pure function
   const totals = calculateMealTotals(foods);
@@ -95,7 +164,7 @@ export async function createMealRecord(
         total_protein: totals.protein,
         total_fat: totals.fat,
         total_carbs: totals.carbs,
-        image_url: imageUrl ?? null,
+        image_url: serializeMealImageUrls(normalizedImageUrls),
         recorded_at: recordedAt.toISOString(),
       })
       .select()
@@ -154,7 +223,8 @@ export async function updateMealRecord(
     return { success: false, error: parsed.error.issues[0].message };
   }
 
-  const { mealType, foods, imageUrl } = parsed.data;
+  const { mealType, foods, imageUrls, imageUrl } = parsed.data;
+  const normalizedImageUrls = normalizeImageUrlsInput(imageUrls, imageUrl);
 
   try {
     const supabase = await createClient();
@@ -181,7 +251,9 @@ export async function updateMealRecord(
     };
 
     if (mealType) updatePayload.meal_type = mealType;
-    if (imageUrl !== undefined) updatePayload.image_url = imageUrl;
+    if (normalizedImageUrls !== undefined) {
+      updatePayload.image_url = serializeMealImageUrls(normalizedImageUrls);
+    }
 
     // If foods are provided, recalculate totals and replace food items
     if (foods && foods.length > 0) {

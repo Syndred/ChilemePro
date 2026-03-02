@@ -64,7 +64,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="mx-auto max-w-lg space-y-4 p-4">
+    <div className="mx-auto max-w-lg space-y-4 bg-gradient-to-b from-orange-50/50 via-amber-50/30 to-background p-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">今日饮食</h1>
         <Link
@@ -78,14 +78,14 @@ export default function HomePage() {
       </div>
 
       {/* Calorie progress card */}
-      <Card>
+      <Card className="border-orange-200/60 bg-gradient-to-br from-orange-50 via-amber-50 to-white shadow-sm">
         <CardContent className="pt-6">
           <CalorieProgress current={dailyTotals.calories} target={target} />
         </CardContent>
       </Card>
 
       {/* Nutrition breakdown card */}
-      <Card>
+      <Card className="border-orange-200/60 bg-gradient-to-br from-orange-50 via-amber-50 to-white shadow-sm">
         <CardContent className="pt-6">
           <NutritionBreakdown
             protein={dailyTotals.protein}

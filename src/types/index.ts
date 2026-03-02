@@ -82,6 +82,7 @@ export interface MealRecord {
   totalProtein: number;
   totalFat: number;
   totalCarbs: number;
+  imageUrls: string[];
   imageUrl: string | null;
   recordedAt: Date;
   createdAt: Date;
@@ -248,6 +249,8 @@ export interface HealthAdvice {
 export interface CreateMealRecordInput {
   mealType: MealType;
   foods: Omit<FoodItem, 'id' | 'mealRecordId' | 'createdAt'>[];
+  imageUrls?: string[];
+  /** @deprecated Use imageUrls instead. */
   imageUrl?: string;
   recordedAt: Date;
 }
@@ -255,7 +258,9 @@ export interface CreateMealRecordInput {
 export interface UpdateMealRecordInput {
   mealType?: MealType;
   foods?: Omit<FoodItem, 'id' | 'mealRecordId' | 'createdAt'>[];
-  imageUrl?: string;
+  imageUrls?: string[] | null;
+  /** @deprecated Use imageUrls instead. */
+  imageUrl?: string | null;
 }
 
 export interface CreatePostInput {

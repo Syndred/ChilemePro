@@ -1,6 +1,6 @@
 'use client';
 
-import { Edit2, Trash2 } from 'lucide-react';
+import { Edit2, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { MealRecord, MealType } from '@/types';
@@ -35,15 +35,49 @@ function formatRecordedTime(date: Date): string {
   });
 }
 
+function getMealImageUrls(record: MealRecord): string[] {
+  if (Array.isArray(record.imageUrls) && record.imageUrls.length > 0) {
+    return record.imageUrls;
+  }
+  if (record.imageUrl) {
+    return [record.imageUrl];
+  }
+  return [];
+}
+
 export function MealRecordCard({ record, onEdit, onDelete }: MealRecordCardProps) {
+  const imageUrls = getMealImageUrls(record);
+  const coverImage = imageUrls[0] ?? null;
+  const hasImageBackground = Boolean(coverImage);
+
   return (
-    <Card className="overflow-hidden py-4">
-      <CardHeader className="pb-2">
+    <Card className="relative overflow-hidden border-0 py-4 shadow-[0_10px_35px_-15px_rgba(0,0,0,0.35)]">
+      {hasImageBackground ? (
+        <div className="absolute inset-0">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={coverImage} alt="餐次背景图" className="h-full w-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-black/30 to-black/70" />
+        </div>
+      ) : (
+        <div className="absolute inset-0 bg-gradient-to-br from-orange-100 via-amber-100 to-yellow-50" />
+      )}
+
+      <CardHeader className="relative pb-2">
         <div className="flex items-start justify-between gap-2">
-          <CardTitle className="flex items-center gap-2 text-base">
+          <CardTitle
+            className={`flex items-center gap-2 text-base ${
+              hasImageBackground ? 'text-white' : 'text-orange-950'
+            }`}
+          >
             <span>{MEAL_TYPE_EMOJI[record.mealType]}</span>
             <span>{MEAL_TYPE_LABELS[record.mealType]}</span>
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                hasImageBackground
+                  ? 'bg-white/20 text-white backdrop-blur'
+                  : 'bg-orange-200 text-orange-700'
+              }`}
+            >
               {record.totalCalories} 千卡
             </span>
           </CardTitle>
@@ -53,7 +87,11 @@ export function MealRecordCard({ record, onEdit, onDelete }: MealRecordCardProps
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8"
+                className={`h-8 w-8 ${
+                  hasImageBackground
+                    ? 'bg-white/10 text-white hover:bg-white/20'
+                    : 'text-orange-700 hover:bg-orange-200/80'
+                }`}
                 onClick={() => onEdit(record)}
                 aria-label="编辑记录"
               >
@@ -64,7 +102,11 @@ export function MealRecordCard({ record, onEdit, onDelete }: MealRecordCardProps
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 text-destructive"
+                className={`h-8 w-8 ${
+                  hasImageBackground
+                    ? 'bg-white/10 text-white hover:bg-white/20'
+                    : 'text-red-600 hover:bg-red-100'
+                }`}
                 onClick={() => onDelete(record.id)}
                 aria-label="删除记录"
               >
@@ -73,24 +115,39 @@ export function MealRecordCard({ record, onEdit, onDelete }: MealRecordCardProps
             )}
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          记录时间：{formatRecordedTime(new Date(record.recordedAt))}
-        </p>
+
+        <div
+          className={`mt-1 flex items-center justify-between text-xs ${
+            hasImageBackground ? 'text-white/85' : 'text-orange-800/80'
+          }`}
+        >
+          <span>记录时间：{formatRecordedTime(new Date(record.recordedAt))}</span>
+          {imageUrls.length > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-black/25 px-2 py-0.5 text-[11px] text-white backdrop-blur">
+              <ImageIcon className="h-3 w-3" />
+              {imageUrls.length}/3 张
+            </span>
+          )}
+        </div>
       </CardHeader>
 
-      <CardContent className="space-y-2">
-        {record.imageUrl && (
-          <div className="overflow-hidden rounded-lg border">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={record.imageUrl} alt="餐次图片" className="h-36 w-full object-cover" />
+      <CardContent className="relative space-y-2">
+        {imageUrls.length > 1 && (
+          <div className="flex gap-1.5">
+            {imageUrls.slice(1, 3).map((url, index) => (
+              <div key={`${url.slice(0, 24)}-${index}`} className="h-10 w-10 overflow-hidden rounded-md border border-white/30">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt={`附图 ${index + 2}`} className="h-full w-full object-cover" />
+              </div>
+            ))}
           </div>
         )}
 
         <ul className="space-y-1" aria-label="食物列表">
           {record.foods.map((food) => (
             <li key={food.id} className="flex items-center justify-between text-sm">
-              <span>{food.name}</span>
-              <span className="text-muted-foreground">
+              <span className={hasImageBackground ? 'text-white' : 'text-orange-950'}>{food.name}</span>
+              <span className={hasImageBackground ? 'text-white/90' : 'text-orange-800/80'}>
                 {food.serving}
                 {food.unit} · {food.calories}千卡
               </span>
@@ -98,14 +155,36 @@ export function MealRecordCard({ record, onEdit, onDelete }: MealRecordCardProps
           ))}
         </ul>
 
-        <div className="flex flex-wrap gap-2 border-t pt-2 text-xs">
-          <span className="rounded-full bg-blue-100 px-2 py-1 text-blue-700">
+        <div
+          className={`flex flex-wrap gap-2 border-t pt-2 text-xs ${
+            hasImageBackground ? 'border-white/20' : 'border-orange-200/70'
+          }`}
+        >
+          <span
+            className={`rounded-full px-2 py-1 ${
+              hasImageBackground
+                ? 'bg-sky-400/25 text-sky-50 backdrop-blur'
+                : 'bg-blue-100 text-blue-700'
+            }`}
+          >
             蛋白质 {record.totalProtein}g
           </span>
-          <span className="rounded-full bg-rose-100 px-2 py-1 text-rose-700">
+          <span
+            className={`rounded-full px-2 py-1 ${
+              hasImageBackground
+                ? 'bg-rose-400/25 text-rose-50 backdrop-blur'
+                : 'bg-rose-100 text-rose-700'
+            }`}
+          >
             脂肪 {record.totalFat}g
           </span>
-          <span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-700">
+          <span
+            className={`rounded-full px-2 py-1 ${
+              hasImageBackground
+                ? 'bg-emerald-400/25 text-emerald-50 backdrop-blur'
+                : 'bg-emerald-100 text-emerald-700'
+            }`}
+          >
             碳水 {record.totalCarbs}g
           </span>
         </div>

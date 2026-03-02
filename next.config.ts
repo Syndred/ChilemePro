@@ -2,6 +2,12 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  experimental: {
+    serverActions: {
+      // Meal records can include up to 3 compressed images in local testing mode.
+      bodySizeLimit: "6mb",
+    },
+  },
   headers: async () => [
     {
       source: "/sw.js",

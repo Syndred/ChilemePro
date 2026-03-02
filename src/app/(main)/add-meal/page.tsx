@@ -35,6 +35,10 @@ const MEAL_TYPES: { value: MealType; label: string; emoji: string }[] = [
 const MIN_SERVING = 1;
 const MAX_SERVING = 5000;
 const MAX_IMAGE_SIZE_BYTES = 8 * 1024 * 1024;
+const MAX_MEAL_IMAGES = 3;
+const MAX_COMPRESSED_IMAGE_BYTES = 550 * 1024;
+const MAX_TOTAL_IMAGE_BYTES = 2 * 1024 * 1024;
+const IMAGE_MAX_EDGE = 1280;
 
 interface AddedFood {
   key: string;
@@ -74,6 +78,81 @@ function formatImageSize(sizeInBytes: number): string {
   return `${mb.toFixed(1)}MB`;
 }
 
+function estimateDataUrlBytes(dataUrl: string): number {
+  const commaIndex = dataUrl.indexOf(',');
+  if (commaIndex < 0) {
+    return dataUrl.length;
+  }
+  const base64 = dataUrl.slice(commaIndex + 1);
+  return Math.ceil((base64.length * 3) / 4);
+}
+
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('failed_to_decode_image'));
+    image.src = dataUrl;
+  });
+}
+
+async function compressImageFile(file: File): Promise<string> {
+  const originalDataUrl = await readFileAsDataUrl(file);
+  const image = await loadImage(originalDataUrl);
+
+  const longestEdge = Math.max(image.width, image.height);
+  const scale = longestEdge > IMAGE_MAX_EDGE ? IMAGE_MAX_EDGE / longestEdge : 1;
+  const targetWidth = Math.max(1, Math.round(image.width * scale));
+  const targetHeight = Math.max(1, Math.round(image.height * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('failed_to_create_canvas_context');
+  }
+
+  context.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+  let quality = 0.82;
+  let compressed = canvas.toDataURL('image/webp', quality);
+
+  while (estimateDataUrlBytes(compressed) > MAX_COMPRESSED_IMAGE_BYTES && quality > 0.45) {
+    quality = Math.round((quality - 0.08) * 100) / 100;
+    compressed = canvas.toDataURL('image/webp', quality);
+  }
+
+  if (estimateDataUrlBytes(compressed) > MAX_COMPRESSED_IMAGE_BYTES) {
+    compressed = canvas.toDataURL('image/jpeg', 0.62);
+  }
+
+  return compressed;
+}
+
+function serializeImagesForLegacyField(imageUrls: string[]): string | null {
+  if (imageUrls.length === 0) {
+    return null;
+  }
+
+  if (imageUrls.length === 1) {
+    return imageUrls[0];
+  }
+
+  return JSON.stringify(imageUrls.slice(0, MAX_MEAL_IMAGES));
+}
+
+function getRecordImageUrls(record: { imageUrls?: string[]; imageUrl?: string | null }): string[] {
+  if (Array.isArray(record.imageUrls) && record.imageUrls.length > 0) {
+    return record.imageUrls.slice(0, MAX_MEAL_IMAGES);
+  }
+  if (record.imageUrl) {
+    return [record.imageUrl];
+  }
+  return [];
+}
+
 export default function AddMealPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -82,7 +161,7 @@ export default function AddMealPage() {
 
   const [mealType, setMealType] = useState<MealType>('lunch');
   const [foods, setFoods] = useState<AddedFood[]>([]);
-  const [mealImage, setMealImage] = useState<string | null>(null);
+  const [mealImages, setMealImages] = useState<string[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -125,7 +204,7 @@ export default function AddMealPage() {
   useEffect(() => {
     if (!editId) {
       setEditingRecordId(null);
-      setMealImage(null);
+      setMealImages([]);
       return;
     }
 
@@ -149,7 +228,7 @@ export default function AddMealPage() {
       const record = result.data;
       setEditingRecordId(record.id);
       setMealType(record.mealType);
-      setMealImage(record.imageUrl ?? null);
+      setMealImages(getRecordImageUrls(record));
       setFoods(
         record.foods.map((food, index) => ({
           key: `${food.id}-${index}`,
@@ -243,40 +322,70 @@ export default function AddMealPage() {
   };
 
   const handleImageFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const selectedFiles = Array.from(event.target.files ?? []);
     event.target.value = '';
 
-    if (!file) {
+    if (selectedFiles.length === 0) {
       return;
     }
 
-    if (!file.type.startsWith('image/')) {
-      setImageError('仅支持图片文件，请选择 JPG、PNG 或 WebP 格式。');
+    const remaining = MAX_MEAL_IMAGES - mealImages.length;
+    if (remaining <= 0) {
+      setImageError(`每餐最多上传 ${MAX_MEAL_IMAGES} 张图片。`);
       return;
     }
 
-    if (file.size > MAX_IMAGE_SIZE_BYTES) {
-      setImageError(
-        `图片过大（${formatImageSize(file.size)}），请控制在 ${formatImageSize(MAX_IMAGE_SIZE_BYTES)} 以内。`,
-      );
-      return;
-    }
+    const files = selectedFiles.slice(0, remaining);
+    const nextImages: string[] = [];
+    const existingBytes = mealImages.reduce((sum, image) => sum + estimateDataUrlBytes(image), 0);
+    let queuedBytes = 0;
+    let localError: string | null = null;
 
-    try {
-      const dataUrl = await readFileAsDataUrl(file);
-      if (!dataUrl.startsWith('data:image/')) {
-        setImageError('图片解析失败，请重新选择一张图片。');
-        return;
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) {
+        localError = '仅支持 JPG / PNG / WebP 图片。';
+        continue;
       }
-      setMealImage(dataUrl);
-      setImageError(null);
-    } catch {
-      setImageError('图片读取失败，请稍后重试。');
+
+      if (file.size > MAX_IMAGE_SIZE_BYTES) {
+        localError = `图片过大（${formatImageSize(file.size)}），单张请控制在 ${formatImageSize(MAX_IMAGE_SIZE_BYTES)} 内。`;
+        continue;
+      }
+
+      try {
+        const dataUrl = await compressImageFile(file);
+        if (!dataUrl.startsWith('data:image/')) {
+          localError = '图片解析失败，请重新选择。';
+          continue;
+        }
+
+        const imageBytes = estimateDataUrlBytes(dataUrl);
+        if (existingBytes + queuedBytes + imageBytes > MAX_TOTAL_IMAGE_BYTES) {
+          localError = `压缩后图片总大小仍过大，请控制在 ${formatImageSize(MAX_TOTAL_IMAGE_BYTES)} 内。`;
+          continue;
+        }
+
+        queuedBytes += imageBytes;
+        nextImages.push(dataUrl);
+      } catch {
+        localError = '图片处理失败，请稍后重试。';
+      }
     }
+
+    if (nextImages.length > 0) {
+      setMealImages((prev) => [...prev, ...nextImages].slice(0, MAX_MEAL_IMAGES));
+    }
+
+    if (selectedFiles.length > remaining) {
+      setImageError(`最多还能再添加 ${remaining} 张图片。`);
+      return;
+    }
+
+    setImageError(localError);
   };
 
-  const handleRemoveImage = () => {
-    setMealImage(null);
+  const handleRemoveImage = (index: number) => {
+    setMealImages((prev) => prev.filter((_, i) => i !== index));
     setImageError(null);
   };
 
@@ -295,7 +404,7 @@ export default function AddMealPage() {
         serving: food.serving,
         unit: food.unit,
       })),
-      imageUrl: mealImage ?? undefined,
+      imageUrls: mealImages.length > 0 ? mealImages : undefined,
       recordedAt: new Date().toISOString(),
     };
 
@@ -315,7 +424,7 @@ export default function AddMealPage() {
       total_fat: totals.fat,
       total_carbs: totals.carbs,
       foods: payload.foods,
-      image_url: mealImage,
+      image_url: serializeImagesForLegacyField(mealImages),
       recorded_at: payload.recordedAt,
     });
   };
@@ -340,7 +449,7 @@ export default function AddMealPage() {
         serving: food.serving,
         unit: food.unit,
       })),
-      imageUrl: mealImage ?? undefined,
+      imageUrls: mealImages.length > 0 ? mealImages : undefined,
       recordedAt: new Date(),
     };
 
@@ -360,7 +469,7 @@ export default function AddMealPage() {
         ? await updateMealRecord(editingRecordId, {
             mealType,
             foods: payload.foods,
-            imageUrl: mealImage ?? null,
+            imageUrls: mealImages.length > 0 ? mealImages : null,
           })
         : await createMealRecord(payload);
 
@@ -376,14 +485,19 @@ export default function AddMealPage() {
       }
 
       setError(result.error ?? '保存失败，请稍后重试。');
-    } catch {
+    } catch (submitError) {
       if (!navigator.onLine) {
         await queueOfflineRecord();
         await navigateToHomeWithFreshData();
         return;
       }
 
-      setError('网络异常，请稍后重试。');
+      const message = submitError instanceof Error ? submitError.message.toLowerCase() : '';
+      if (message.includes('body') || message.includes('payload') || message.includes('413')) {
+        setError('图片数据过大，请减少图片或重新上传后重试。');
+      } else {
+        setError('网络异常，请稍后重试。');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -400,14 +514,12 @@ export default function AddMealPage() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div>
-          <h1 className="text-lg font-semibold">
-            {editingRecordId ? '编辑饮食记录' : '添加饮食记录'}
-          </h1>
+          <h1 className="text-lg font-semibold">{editingRecordId ? '编辑饮食记录' : '添加饮食记录'}</h1>
           <p className="text-xs text-muted-foreground">记录这一餐，让趋势更清晰。</p>
         </div>
       </div>
 
-      <Card className="border-orange-200/60 bg-gradient-to-br from-orange-50 via-amber-50 to-white py-4">
+      <Card className="border-orange-200/60 bg-gradient-to-br from-orange-50 via-amber-50 to-white py-4 shadow-sm">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">选择餐次</CardTitle>
         </CardHeader>
@@ -423,7 +535,7 @@ export default function AddMealPage() {
                 className={`rounded-xl border px-2 py-3 text-center text-sm transition-colors ${
                   mealType === type.value
                     ? 'border-orange-300 bg-orange-100 text-orange-700'
-                    : 'border-border bg-background hover:bg-accent'
+                    : 'border-border bg-white/75 hover:bg-accent'
                 }`}
               >
                 <div className="text-lg">{type.emoji}</div>
@@ -434,11 +546,11 @@ export default function AddMealPage() {
         </CardContent>
       </Card>
 
-      <Card className="py-4">
+      <Card className="border-orange-200/60 bg-gradient-to-br from-orange-50 via-amber-50 to-white py-4 shadow-sm">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <ImagePlus className="h-4 w-4 text-orange-500" />
-            上传当餐图片（可选）
+            上传当餐图片（最多 3 张）
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -446,30 +558,45 @@ export default function AddMealPage() {
             ref={fileInputRef}
             type="file"
             accept="image/*"
+            multiple
             className="hidden"
             onChange={handleImageFileChange}
           />
 
-          {mealImage ? (
-            <div className="overflow-hidden rounded-xl border">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={mealImage} alt="当餐图片预览" className="h-48 w-full object-cover" />
-              <div className="flex items-center justify-end gap-2 bg-muted/40 p-2">
+          {mealImages.length > 0 ? (
+            <div className="space-y-2">
+              <div className="grid grid-cols-3 gap-2">
+                {mealImages.map((image, index) => (
+                  <div key={`${image.slice(0, 24)}-${index}`} className="relative overflow-hidden rounded-lg border">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={image}
+                      alt={`当餐图片 ${index + 1}`}
+                      className="aspect-square w-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white hover:bg-black/70"
+                      onClick={() => handleRemoveImage(index)}
+                      aria-label={`删除图片 ${index + 1}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {mealImages.length < MAX_MEAL_IMAGES && (
                 <Button type="button" variant="outline" size="sm" onClick={triggerImagePicker}>
                   <Upload className="mr-1 h-4 w-4" />
-                  更换图片
+                  继续添加图片
                 </Button>
-                <Button type="button" variant="outline" size="sm" onClick={handleRemoveImage}>
-                  <X className="mr-1 h-4 w-4" />
-                  移除
-                </Button>
-              </div>
+              )}
             </div>
           ) : (
             <button
               type="button"
               onClick={triggerImagePicker}
-              className="flex w-full flex-col items-center gap-2 rounded-xl border border-dashed border-orange-300 bg-orange-50/60 px-4 py-8 text-sm text-muted-foreground transition-colors hover:bg-orange-100/60"
+              className="flex w-full flex-col items-center gap-2 rounded-xl border border-dashed border-orange-300 bg-white/70 px-4 py-8 text-sm text-muted-foreground transition-colors hover:bg-orange-100/50"
             >
               <ImagePlus className="h-6 w-6 text-orange-500" />
               <span className="font-medium text-foreground">点击上传餐图</span>
@@ -477,20 +604,25 @@ export default function AddMealPage() {
             </button>
           )}
 
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <p className="flex items-center gap-1">
+              <Sparkles className="h-3.5 w-3.5" />
+              支持 JPG / PNG / WebP，自动压缩后总大小约不超过 {formatImageSize(MAX_TOTAL_IMAGE_BYTES)}。
+            </p>
+            <p>
+              已上传 {mealImages.length}/{MAX_MEAL_IMAGES}
+            </p>
+          </div>
+
           {imageError && (
             <p className="text-sm text-destructive" role="alert">
               {imageError}
             </p>
           )}
-
-          <p className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Sparkles className="h-3.5 w-3.5" />
-            支持 JPG / PNG / WebP，大小不超过 8MB。
-          </p>
         </CardContent>
       </Card>
 
-      <Card className="py-4">
+      <Card className="py-4 shadow-sm">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">添加食物</CardTitle>
         </CardHeader>
@@ -500,7 +632,7 @@ export default function AddMealPage() {
       </Card>
 
       {foods.length > 0 && (
-        <Card className="py-4">
+        <Card className="py-4 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">已添加食物</CardTitle>
           </CardHeader>

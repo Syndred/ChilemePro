@@ -60,4 +60,33 @@ describe('createMealRecordSchema', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it('accepts up to 3 meal images', () => {
+    const result = createMealRecordSchema.safeParse({
+      mealType: 'lunch',
+      foods: [validFood],
+      imageUrls: [
+        'https://example.com/a.jpg',
+        'https://example.com/b.jpg',
+        'https://example.com/c.jpg',
+      ],
+      recordedAt: new Date().toISOString(),
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects more than 3 meal images', () => {
+    const result = createMealRecordSchema.safeParse({
+      mealType: 'lunch',
+      foods: [validFood],
+      imageUrls: [
+        'https://example.com/a.jpg',
+        'https://example.com/b.jpg',
+        'https://example.com/c.jpg',
+        'https://example.com/d.jpg',
+      ],
+      recordedAt: new Date().toISOString(),
+    });
+    expect(result.success).toBe(false);
+  });
 });

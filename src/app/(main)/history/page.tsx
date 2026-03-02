@@ -71,7 +71,7 @@ export default function HistoryPage() {
     selectedDate.toDateString() === new Date().toDateString();
 
   return (
-    <div className="mx-auto max-w-lg space-y-4 p-4">
+    <div className="mx-auto max-w-lg space-y-4 bg-gradient-to-b from-orange-50/50 via-amber-50/30 to-background p-4">
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link
@@ -88,14 +88,14 @@ export default function HistoryPage() {
       <DatePicker date={selectedDate} onDateChange={setSelectedDate} />
 
       {/* Calorie summary */}
-      <Card>
+      <Card className="border-orange-200/60 bg-gradient-to-br from-orange-50 via-amber-50 to-white shadow-sm">
         <CardContent className="pt-6">
           <CalorieProgress current={dailyTotals.calories} target={target} />
         </CardContent>
       </Card>
 
       {/* Nutrition breakdown */}
-      <Card>
+      <Card className="border-orange-200/60 bg-gradient-to-br from-orange-50 via-amber-50 to-white shadow-sm">
         <CardContent className="pt-6">
           <NutritionBreakdown
             protein={dailyTotals.protein}
