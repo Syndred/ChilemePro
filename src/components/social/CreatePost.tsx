@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState, type ChangeEvent } from 'react';
 import Image from 'next/image';
 import { ImagePlus, X, Loader2, Send } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,22 +12,25 @@ import {
   validatePost,
 } from '@/lib/utils/social';
 
-/**
- * CreatePost — form for publishing a new social post.
- * Requirement 14.1: Upload photos and text
- * Requirement 14.4: Max 9 photos
- * Requirement 14.5: Max 500 characters
- */
-
 interface CreatePostProps {
   onSubmit: (data: { content: string; images: string[] }) => Promise<void>;
   isSubmitting?: boolean;
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('Failed to read image file'));
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function CreatePost({ onSubmit, isSubmitting }: CreatePostProps) {
   const [content, setContent] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleContentChange = (value: string) => {
     if (value.length <= MAX_POST_CONTENT_LENGTH) {
@@ -36,16 +39,32 @@ export default function CreatePost({ onSubmit, isSubmitting }: CreatePostProps) 
     }
   };
 
-  const handleAddImage = () => {
+  const handleAddImageClick = () => {
     if (images.length >= MAX_POST_IMAGES) {
-      setError(`最多上传${MAX_POST_IMAGES}张照片`);
+      setError(`最多上传 ${MAX_POST_IMAGES} 张照片`);
       return;
     }
-    // In a real app, this would open a file picker and upload to Supabase Storage.
-    // For now, we use a placeholder URL pattern.
-    const placeholderUrl = `https://placeholder.co/400?text=Photo${images.length + 1}`;
-    setImages((prev) => [...prev, placeholderUrl]);
-    setError(null);
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    if (files.length === 0) {
+      return;
+    }
+
+    const remaining = MAX_POST_IMAGES - images.length;
+    const selected = files.slice(0, remaining);
+
+    try {
+      const dataUrls = await Promise.all(selected.map((file) => fileToDataUrl(file)));
+      setImages((prev) => [...prev, ...dataUrls]);
+      setError(null);
+    } catch {
+      setError('图片读取失败，请重试');
+    } finally {
+      event.target.value = '';
+    }
   };
 
   const handleRemoveImage = (index: number) => {
@@ -74,7 +93,7 @@ export default function CreatePost({ onSubmit, isSubmitting }: CreatePostProps) 
 
   return (
     <Card>
-      <CardContent className="p-4 space-y-3">
+      <CardContent className="space-y-3 p-4">
         <Textarea
           placeholder="分享你的饮食心得..."
           value={content}
@@ -83,19 +102,17 @@ export default function CreatePost({ onSubmit, isSubmitting }: CreatePostProps) 
           maxLength={MAX_POST_CONTENT_LENGTH}
         />
 
-        {/* Character count */}
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>
             {content.length}/{MAX_POST_CONTENT_LENGTH}
           </span>
         </div>
 
-        {/* Image preview grid */}
         {images.length > 0 && (
           <div className="grid grid-cols-3 gap-2">
             {images.map((img, index) => (
               <div
-                key={index}
+                key={`${img.slice(0, 24)}-${index}`}
                 className="relative aspect-square overflow-hidden rounded-md bg-muted"
               >
                 <Image
@@ -119,15 +136,13 @@ export default function CreatePost({ onSubmit, isSubmitting }: CreatePostProps) 
           </div>
         )}
 
-        {/* Error message */}
         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        {/* Actions */}
         <div className="flex items-center justify-between border-t pt-3">
           <Button
             variant="ghost"
             size="sm"
-            onClick={handleAddImage}
+            onClick={handleAddImageClick}
             disabled={images.length >= MAX_POST_IMAGES}
             className="gap-1.5 text-muted-foreground"
           >
@@ -137,11 +152,7 @@ export default function CreatePost({ onSubmit, isSubmitting }: CreatePostProps) 
             </span>
           </Button>
 
-          <Button
-            size="sm"
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-          >
+          <Button size="sm" onClick={handleSubmit} disabled={!canSubmit}>
             {isSubmitting ? (
               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
             ) : (
@@ -150,6 +161,15 @@ export default function CreatePost({ onSubmit, isSubmitting }: CreatePostProps) 
             发布
           </Button>
         </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={handleFileSelect}
+        />
       </CardContent>
     </Card>
   );

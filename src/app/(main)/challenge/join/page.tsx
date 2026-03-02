@@ -7,13 +7,23 @@ import { motion } from 'framer-motion';
 import { Shield, CheckCircle2, Loader2, ArrowLeft } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { joinChallenge } from '@/app/actions/challenge';
-import { CHALLENGE_DEPOSIT, DAILY_REWARDS, TOTAL_POSSIBLE_REWARD } from '@/lib/utils/challenge';
+import {
+  CHALLENGE_DEPOSIT,
+  DAILY_REWARDS,
+  TOTAL_POSSIBLE_REWARD,
+} from '@/lib/utils/challenge';
+
+interface JoinPaymentResult {
+  success: boolean;
+  error?: string;
+  paymentIntentId?: string;
+  status?: 'pending' | 'completed';
+}
 
 /**
- * Join challenge page — confirm deposit and start challenge.
- * Requirement 9.1: User pays 100 元 deposit
- * Requirement 9.2: 7-day challenge from payment day
+ * Join challenge page.
+ * Security fix: this page now creates a payment transaction first.
+ * Challenge activation happens only after payment completion.
  */
 export default function JoinChallengePage() {
   const router = useRouter();
@@ -21,12 +31,53 @@ export default function JoinChallengePage() {
   const [agreed, setAgreed] = useState(false);
 
   const joinMutation = useMutation({
-    mutationFn: () => joinChallenge({ deposit: CHALLENGE_DEPOSIT }),
-    onSuccess: (res) => {
-      if (res.success) {
-        queryClient.invalidateQueries({ queryKey: ['activeChallenge'] });
-        router.push('/challenge');
+    mutationFn: async (): Promise<JoinPaymentResult> => {
+      const response = await fetch('/api/payment/stripe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'deposit',
+          amount: CHALLENGE_DEPOSIT,
+        }),
+      });
+
+      const data = (await response.json()) as {
+        error?: string;
+        paymentIntentId?: string;
+        status?: 'pending' | 'completed';
+      };
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: data.error ?? '支付创建失败，请重试',
+        };
       }
+
+      return {
+        success: true,
+        paymentIntentId: data.paymentIntentId,
+        status: data.status ?? 'pending',
+      };
+    },
+    onSuccess: (result) => {
+      if (!result.success) {
+        return;
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['activeChallenge'] });
+
+      if (result.status === 'completed') {
+        router.push('/challenge');
+        return;
+      }
+
+      if (result.paymentIntentId) {
+        router.push(`/challenge?payment=pending&tx=${result.paymentIntentId}`);
+        return;
+      }
+
+      router.push('/challenge');
     },
   });
 
@@ -51,7 +102,6 @@ export default function JoinChallengePage() {
         transition={{ duration: 0.3 }}
         className="space-y-4"
       >
-        {/* Deposit info */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -75,7 +125,6 @@ export default function JoinChallengePage() {
           </CardContent>
         </Card>
 
-        {/* Rules */}
         <Card>
           <CardHeader>
             <CardTitle>挑战规则</CardTitle>
@@ -92,21 +141,16 @@ export default function JoinChallengePage() {
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
-                完成每日任务即可获得对应返现
+                未完成任务金额进入奖金池
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
-                挑战未开始前可取消并全额退款
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
-                挑战开始后不可退出，押金不予退还
+                仅在支付成功后，挑战才会正式生效
               </li>
             </ul>
           </CardContent>
         </Card>
 
-        {/* Reward breakdown */}
         <Card>
           <CardHeader>
             <CardTitle>每日返现明细</CardTitle>
@@ -123,7 +167,6 @@ export default function JoinChallengePage() {
           </CardContent>
         </Card>
 
-        {/* Agreement + Submit */}
         <div className="space-y-3">
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -146,7 +189,7 @@ export default function JoinChallengePage() {
             {joinMutation.isPending ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : null}
-            支付 ¥{CHALLENGE_DEPOSIT} 参与挑战
+            支付 ¥{CHALLENGE_DEPOSIT} 并参与挑战
           </Button>
         </div>
       </motion.div>

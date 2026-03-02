@@ -7,6 +7,7 @@ import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { getMembershipStatus } from '@/app/actions/membership';
+import { getPaymentStatus } from '@/app/actions/payment';
 import {
   FREE_FEATURES,
   PREMIUM_FEATURES,
@@ -23,20 +24,49 @@ export default function MembershipPage() {
   const [loading, setLoading] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState<SelectedPlan>('yearly');
   const [paying, setPaying] = useState(false);
+  const [pendingTxId, setPendingTxId] = useState<string | null>(null);
+  const [paymentHint, setPaymentHint] = useState<string | null>(null);
+
+  const loadStatus = useCallback(async () => {
+    const result = await getMembershipStatus();
+    if (result.success && result.data) {
+      setStatus(result.data);
+    }
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    async function loadStatus() {
-      const result = await getMembershipStatus();
-      if (result.success && result.data) {
-        setStatus(result.data);
-      }
-      setLoading(false);
-    }
     loadStatus();
-  }, []);
+  }, [loadStatus]);
+
+  useEffect(() => {
+    if (!pendingTxId) {
+      return;
+    }
+
+    const timer = setInterval(async () => {
+      const result = await getPaymentStatus(pendingTxId);
+      if (!result.success || !result.data) {
+        return;
+      }
+
+      if (result.data.status === 'completed') {
+        setPendingTxId(null);
+        setPaymentHint('支付成功，会员权益已生效');
+        await loadStatus();
+      } else if (result.data.status === 'failed') {
+        setPendingTxId(null);
+        setPaymentHint('支付失败，请重试');
+      }
+    }, 3000);
+
+    return () => clearInterval(timer);
+  }, [pendingTxId, loadStatus]);
 
   const handleSubscribe = useCallback(async () => {
     setPaying(true);
+    setPaymentHint(null);
+
     try {
       const plan = MEMBERSHIP_PLANS[selectedPlan];
       const response = await fetch('/api/payment/stripe', {
@@ -48,25 +78,37 @@ export default function MembershipPage() {
         }),
       });
 
-      const data = await response.json();
-      if (data.clientSecret) {
-        // In production, this would open Stripe checkout
-        // For now, store the intent and show confirmation
-        sessionStorage.setItem('payment-intent', JSON.stringify({
-          clientSecret: data.clientSecret,
-          plan: selectedPlan,
-          amount: plan.price,
-        }));
-        router.push('/profile/membership?payment=pending');
-      } else {
-        alert(data.error || '支付创建失败，请重试');
+      const data = (await response.json()) as {
+        error?: string;
+        status?: 'pending' | 'completed';
+        paymentIntentId?: string;
+        mock?: boolean;
+      };
+
+      if (!response.ok) {
+        setPaymentHint(data.error ?? '支付创建失败，请重试');
+        return;
       }
+
+      if (data.status === 'completed') {
+        setPaymentHint(data.mock ? '测试支付成功，会员已生效' : '支付成功');
+        await loadStatus();
+        return;
+      }
+
+      if (data.paymentIntentId) {
+        setPendingTxId(data.paymentIntentId);
+        setPaymentHint('订单已创建，请完成支付后等待状态更新');
+        return;
+      }
+
+      setPaymentHint('支付订单创建成功，请完成支付');
     } catch {
-      alert('网络错误，请重试');
+      setPaymentHint('网络错误，请重试');
     } finally {
       setPaying(false);
     }
-  }, [selectedPlan, router]);
+  }, [selectedPlan, loadStatus]);
 
   const savingsPercent = getYearlySavingsPercent();
 
@@ -80,7 +122,6 @@ export default function MembershipPage() {
 
   return (
     <div className="mx-auto max-w-lg px-4 py-4">
-      {/* Header */}
       <div className="mb-6 flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => router.back()} aria-label="返回">
           <ArrowLeft className="h-5 w-5" />
@@ -88,13 +129,8 @@ export default function MembershipPage() {
         <h1 className="text-lg font-semibold">会员中心</h1>
       </div>
 
-      {/* Current Status */}
       {status && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-6"
-        >
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
           <Card className="p-4">
             <div className="flex items-center gap-3">
               {status.isPremium ? (
@@ -103,9 +139,7 @@ export default function MembershipPage() {
                 <Sparkles className="h-8 w-8 text-muted-foreground" />
               )}
               <div>
-                <p className="font-semibold">
-                  {status.isPremium ? '尊享会员' : '免费版'}
-                </p>
+                <p className="font-semibold">{status.isPremium ? '会员版' : '免费版'}</p>
                 {status.isPremium && status.expiresAt && (
                   <p className="text-xs text-muted-foreground">
                     到期时间: {status.expiresAt.toLocaleDateString('zh-CN')}
@@ -120,7 +154,6 @@ export default function MembershipPage() {
         </motion.div>
       )}
 
-      {/* Benefits Comparison - Requirement 22.6 */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -129,7 +162,6 @@ export default function MembershipPage() {
       >
         <h2 className="mb-3 text-sm font-semibold text-muted-foreground">权益对比</h2>
         <div className="grid grid-cols-2 gap-3">
-          {/* Free Tier */}
           <Card className="p-4">
             <p className="mb-3 text-center font-semibold">免费版</p>
             <ul className="space-y-2">
@@ -142,7 +174,6 @@ export default function MembershipPage() {
             </ul>
           </Card>
 
-          {/* Premium Tier */}
           <Card className="border-primary p-4">
             <p className="mb-3 text-center font-semibold text-primary">
               <Crown className="mr-1 inline h-4 w-4" />
@@ -150,7 +181,7 @@ export default function MembershipPage() {
             </p>
             <ul className="space-y-2">
               {PREMIUM_FEATURES.filter(
-                (f) => !FREE_FEATURES.includes(f as typeof FREE_FEATURES[number]),
+                (feature) => !FREE_FEATURES.includes(feature as typeof FREE_FEATURES[number]),
               ).map((feature) => (
                 <li key={feature} className="flex items-start gap-2 text-xs">
                   <Check className="mt-0.5 h-3 w-3 shrink-0 text-primary" />
@@ -162,8 +193,7 @@ export default function MembershipPage() {
         </div>
       </motion.div>
 
-      {/* Subscription Plans - Requirement 22.5 */}
-      {(!status?.isPremium) && (
+      {!status?.isPremium && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -172,7 +202,6 @@ export default function MembershipPage() {
         >
           <h2 className="text-sm font-semibold text-muted-foreground">选择订阅方案</h2>
 
-          {/* Yearly Plan */}
           <Card
             className={`cursor-pointer p-4 transition-colors ${
               selectedPlan === 'yearly' ? 'border-primary ring-2 ring-primary/20' : ''
@@ -197,12 +226,13 @@ export default function MembershipPage() {
               </div>
               <p className="text-lg font-bold">
                 ¥{MEMBERSHIP_PLANS.yearly.price}
-                <span className="text-xs font-normal text-muted-foreground">/{MEMBERSHIP_PLANS.yearly.period}</span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  /{MEMBERSHIP_PLANS.yearly.period}
+                </span>
               </p>
             </div>
           </Card>
 
-          {/* Monthly Plan */}
           <Card
             className={`cursor-pointer p-4 transition-colors ${
               selectedPlan === 'monthly' ? 'border-primary ring-2 ring-primary/20' : ''
@@ -220,35 +250,35 @@ export default function MembershipPage() {
               </div>
               <p className="text-lg font-bold">
                 ¥{MEMBERSHIP_PLANS.monthly.price}
-                <span className="text-xs font-normal text-muted-foreground">/{MEMBERSHIP_PLANS.monthly.period}</span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  /{MEMBERSHIP_PLANS.monthly.period}
+                </span>
               </p>
             </div>
           </Card>
 
-          {/* Subscribe Button - Requirement 22.7 */}
-          <Button
-            className="w-full"
-            size="lg"
-            onClick={handleSubscribe}
-            disabled={paying}
-          >
+          <Button className="w-full" size="lg" onClick={handleSubscribe} disabled={paying || !!pendingTxId}>
             {paying ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 处理中...
+              </>
+            ) : pendingTxId ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                等待支付结果...
               </>
             ) : (
               `立即订阅 ¥${MEMBERSHIP_PLANS[selectedPlan].price}/${MEMBERSHIP_PLANS[selectedPlan].period}`
             )}
           </Button>
 
-          <p className="text-center text-[10px] text-muted-foreground">
-            订阅后立即解锁所有会员功能
-          </p>
+          {paymentHint && (
+            <p className="text-center text-xs text-muted-foreground">{paymentHint}</p>
+          )}
         </motion.div>
       )}
 
-      {/* Already Premium */}
       {status?.isPremium && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -256,9 +286,10 @@ export default function MembershipPage() {
           transition={{ delay: 0.2 }}
           className="text-center"
         >
-          <p className="text-sm text-muted-foreground">
-            您已是尊享会员，享受所有会员权益
-          </p>
+          <p className="text-sm text-muted-foreground">您已是会员，权益已开启。</p>
+          {paymentHint && (
+            <p className="mt-2 text-xs text-muted-foreground">{paymentHint}</p>
+          )}
         </motion.div>
       )}
     </div>

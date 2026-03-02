@@ -7,12 +7,6 @@ import { Button } from '@/components/ui/button';
 import { formatPostTime, canDeletePost } from '@/lib/utils/social';
 import type { SocialPost } from '@/types';
 
-/**
- * FeedCard — displays a single social post in the feed.
- * Requirement 14.1: Show photos and text
- * Requirement 14.6: Allow deletion of own posts
- */
-
 interface FeedCardProps {
   post: SocialPost;
   currentUserId?: string;
@@ -33,7 +27,6 @@ export default function FeedCard({
   return (
     <Card className="overflow-hidden">
       <CardContent className="p-4">
-        {/* Header: avatar + nickname + time */}
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 overflow-hidden rounded-full bg-muted">
@@ -43,6 +36,7 @@ export default function FeedCard({
                   alt={post.user.nickname}
                   width={40}
                   height={40}
+                  unoptimized
                   className="h-full w-full object-cover"
                 />
               ) : (
@@ -53,9 +47,7 @@ export default function FeedCard({
             </div>
             <div>
               <p className="text-sm font-medium">{post.user.nickname}</p>
-              <p className="text-xs text-muted-foreground">
-                {formatPostTime(post.createdAt)}
-              </p>
+              <p className="text-xs text-muted-foreground">{formatPostTime(post.createdAt)}</p>
             </div>
           </div>
 
@@ -72,12 +64,8 @@ export default function FeedCard({
           )}
         </div>
 
-        {/* Content text */}
-        {post.content && (
-          <p className="mb-3 text-sm leading-relaxed">{post.content}</p>
-        )}
+        {post.content && <p className="mb-3 text-sm leading-relaxed">{post.content}</p>}
 
-        {/* Image grid */}
         {post.images.length > 0 && (
           <div
             className={`mb-3 grid gap-1 ${
@@ -90,13 +78,14 @@ export default function FeedCard({
           >
             {post.images.map((img, index) => (
               <div
-                key={index}
+                key={`${img.slice(0, 24)}-${index}`}
                 className="relative aspect-square overflow-hidden rounded-md bg-muted"
               >
                 <Image
                   src={img}
                   alt={`照片 ${index + 1}`}
                   fill
+                  unoptimized
                   className="object-cover"
                   sizes="(max-width: 768px) 33vw, 200px"
                 />
@@ -105,7 +94,6 @@ export default function FeedCard({
           </div>
         )}
 
-        {/* Actions: like + comment */}
         <div className="flex items-center gap-4 border-t pt-3">
           <Button
             variant="ghost"
@@ -113,10 +101,8 @@ export default function FeedCard({
             className={`gap-1.5 ${post.isLiked ? 'text-red-500' : 'text-muted-foreground'}`}
             onClick={() => onLike?.(post.id)}
           >
-            <Heart
-              className={`h-4 w-4 ${post.isLiked ? 'fill-current' : ''}`}
-            />
-            <span className="text-xs">{post.likes > 0 ? post.likes : '赞'}</span>
+            <Heart className={`h-4 w-4 ${post.isLiked ? 'fill-current' : ''}`} />
+            <span className="text-xs">{post.likes > 0 ? post.likes : '点赞'}</span>
           </Button>
 
           <Button

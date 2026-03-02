@@ -5,9 +5,10 @@ import {
   type UserSettings,
   type NotificationSettings,
   type PrivacySettings,
-  getDefaultSettings,
   validateNotificationSettings,
   validatePrivacySettings,
+  mergeNotificationSettings,
+  mergePrivacySettings,
   maskPhone,
 } from '@/lib/utils/settings';
 
@@ -17,56 +18,53 @@ export interface ActionResult<T = void> {
   error?: string;
 }
 
-/**
- * Get the current user's settings.
- * Requirement 16.6: Provide settings options (notifications, privacy, account)
- *
- * Settings are stored as JSON in the users table metadata or
- * derived from user profile fields. For MVP, we use sensible defaults
- * and store notification/privacy prefs in localStorage on the client,
- * with account info fetched from the database.
- */
 export async function getUserSettings(): Promise<ActionResult<UserSettings>> {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
     if (!user) {
       return { success: false, error: '请先登录' };
     }
 
-    const { data: userData, error } = await supabase
-      .from('users')
-      .select('phone, wechat_id')
-      .eq('id', user.id)
-      .single();
+    const [{ data: userData, error: userError }, { data: settingsRow }] = await Promise.all([
+      supabase.from('users').select('phone, wechat_id').eq('id', user.id).single(),
+      supabase
+        .from('user_settings')
+        .select('notification_settings, privacy_settings')
+        .eq('user_id', user.id)
+        .maybeSingle(),
+    ]);
 
-    if (error || !userData) {
+    if (userError || !userData) {
       return { success: false, error: '获取用户信息失败' };
     }
 
-    const defaults = getDefaultSettings();
+    const notificationSettings = mergeNotificationSettings(
+      (settingsRow?.notification_settings as Partial<NotificationSettings>) ?? {},
+    );
+    const privacySettings = mergePrivacySettings(
+      (settingsRow?.privacy_settings as Partial<PrivacySettings>) ?? {},
+    );
 
-    const settings: UserSettings = {
-      notifications: defaults.notifications,
-      privacy: defaults.privacy,
-      account: {
-        phone: maskPhone(userData.phone as string | null),
-        wechatBound: !!(userData.wechat_id),
+    return {
+      success: true,
+      data: {
+        notifications: notificationSettings,
+        privacy: privacySettings,
+        account: {
+          phone: maskPhone((userData.phone as string | null) ?? null),
+          wechatBound: !!userData.wechat_id,
+        },
       },
     };
-
-    return { success: true, data: settings };
   } catch {
-    return { success: false, error: '服务器错误，请重试' };
+    return { success: false, error: '服务器错误，请稍后重试' };
   }
 }
 
-
-/**
- * Update notification settings.
- * Requirement 16.6: Notification settings
- */
 export async function updateNotificationSettings(
   input: NotificationSettings,
 ): Promise<ActionResult> {
@@ -75,32 +73,70 @@ export async function updateNotificationSettings(
     return { success: false, error: validation.error };
   }
 
-  // For MVP, notification preferences are stored client-side (localStorage).
-  // This action validates the input server-side for consistency.
-  return { success: true };
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { success: false, error: '请先登录' };
+    }
+
+    const { error } = await supabase.from('user_settings').upsert(
+      {
+        user_id: user.id,
+        notification_settings: validation.data,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' },
+    );
+
+    if (error) {
+      return { success: false, error: '保存通知设置失败' };
+    }
+
+    return { success: true };
+  } catch {
+    return { success: false, error: '服务器错误，请稍后重试' };
+  }
 }
 
-/**
- * Update privacy settings.
- * Requirement 16.6: Privacy settings
- */
-export async function updatePrivacySettings(
-  input: PrivacySettings,
-): Promise<ActionResult> {
+export async function updatePrivacySettings(input: PrivacySettings): Promise<ActionResult> {
   const validation = validatePrivacySettings(input);
   if (!validation.valid) {
     return { success: false, error: validation.error };
   }
 
-  // For MVP, privacy preferences are stored client-side (localStorage).
-  // This action validates the input server-side for consistency.
-  return { success: true };
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { success: false, error: '请先登录' };
+    }
+
+    const { error } = await supabase.from('user_settings').upsert(
+      {
+        user_id: user.id,
+        privacy_settings: validation.data,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' },
+    );
+
+    if (error) {
+      return { success: false, error: '保存隐私设置失败' };
+    }
+
+    return { success: true };
+  } catch {
+    return { success: false, error: '服务器错误，请稍后重试' };
+  }
 }
 
-/**
- * Log out the current user.
- * Requirement 16.6: Account settings (logout)
- */
 export async function logoutUser(): Promise<ActionResult> {
   try {
     const supabase = await createClient();
@@ -112,6 +148,6 @@ export async function logoutUser(): Promise<ActionResult> {
 
     return { success: true };
   } catch {
-    return { success: false, error: '服务器错误，请重试' };
+    return { success: false, error: '服务器错误，请稍后重试' };
   }
 }

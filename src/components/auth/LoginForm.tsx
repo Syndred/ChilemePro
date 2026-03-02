@@ -55,8 +55,7 @@ export function LoginForm({ onSuccess, onError }: LoginFormProps) {
   const handleWeChatLogin = useCallback(() => {
     setServerError(null);
     startTransition(async () => {
-      const baseUrl = window.location.origin;
-      const result = await initiateWeChatLogin(baseUrl);
+      const result = await initiateWeChatLogin();
       if (result.success && result.data) {
         // Store state in cookie for CSRF validation on callback
         document.cookie = `wechat_oauth_state=${result.data.state};path=/;max-age=600;samesite=lax`;

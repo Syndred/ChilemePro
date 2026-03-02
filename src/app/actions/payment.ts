@@ -1,19 +1,18 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import {
-  validatePaymentAmount,
-  canRetryPayment,
-} from '@/lib/utils/payment';
-import type { PaymentTransaction, PaymentTransactionType, TransactionStatus } from '@/types';
+import { validatePaymentAmount, canRetryPayment } from '@/lib/utils/payment';
+import type {
+  PaymentTransaction,
+  PaymentTransactionType,
+  TransactionStatus,
+} from '@/types';
 
 export interface ActionResult<T = void> {
   success: boolean;
   data?: T;
   error?: string;
 }
-
-// --- Mapper ---
 
 function mapPaymentTransaction(row: Record<string, unknown>): PaymentTransaction {
   return {
@@ -32,13 +31,14 @@ function mapPaymentTransaction(row: Record<string, unknown>): PaymentTransaction
 }
 
 /**
- * Get payment history for the current user.
- * Requirement 18.6: Record all payment and withdrawal transactions.
+ * Requirement 18.6: record all payment/withdrawal transactions.
  */
 export async function getPaymentHistory(): Promise<ActionResult<PaymentTransaction[]>> {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
     if (!user) {
       return { success: false, error: '请先登录' };
@@ -54,19 +54,15 @@ export async function getPaymentHistory(): Promise<ActionResult<PaymentTransacti
       return { success: false, error: '查询支付记录失败' };
     }
 
-    const transactions = (rows ?? []).map((row) =>
-      mapPaymentTransaction(row as Record<string, unknown>),
-    );
-
-    return { success: true, data: transactions };
+    return {
+      success: true,
+      data: (rows ?? []).map((row) => mapPaymentTransaction(row as Record<string, unknown>)),
+    };
   } catch {
-    return { success: false, error: '服务器错误，请重试' };
+    return { success: false, error: '服务器错误，请稍后重试' };
   }
 }
 
-/**
- * Get a specific payment transaction by ID.
- */
 export async function getPaymentTransaction(
   transactionId: string,
 ): Promise<ActionResult<PaymentTransaction>> {
@@ -76,7 +72,9 @@ export async function getPaymentTransaction(
 
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
     if (!user) {
       return { success: false, error: '请先登录' };
@@ -98,14 +96,12 @@ export async function getPaymentTransaction(
       data: mapPaymentTransaction(row as Record<string, unknown>),
     };
   } catch {
-    return { success: false, error: '服务器错误，请重试' };
+    return { success: false, error: '服务器错误，请稍后重试' };
   }
 }
 
 /**
- * Validate a payment request before initiating.
- * Used by the client to pre-validate before calling the Stripe API route.
- * Requirement 18.4: Validate and show errors before payment.
+ * Requirement 18.4: validate and show errors before payment.
  */
 export async function validatePayment(
   type: PaymentTransactionType,
@@ -118,13 +114,14 @@ export async function validatePayment(
 
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
     if (!user) {
       return { success: false, error: '请先登录' };
     }
 
-    // For deposits, check if user already has an active/pending challenge
     if (type === 'deposit') {
       const { data: existingChallenges } = await supabase
         .from('challenges')
@@ -132,20 +129,22 @@ export async function validatePayment(
         .eq('user_id', user.id)
         .in('status', ['active', 'pending']);
 
-      if (existingChallenges && existingChallenges.length > 0) {
-        return { success: false, error: '您已有进行中的挑战，无法重复支付押金' };
+      if ((existingChallenges ?? []).length > 0) {
+        return {
+          success: false,
+          error: '当前已有进行中的挑战，无法重复支付押金',
+        };
       }
     }
 
     return { success: true, data: { valid: true } };
   } catch {
-    return { success: false, error: '服务器错误，请重试' };
+    return { success: false, error: '服务器错误，请稍后重试' };
   }
 }
 
 /**
- * Check if a failed payment can be retried.
- * Requirement 18.4: Allow retry on payment failure.
+ * Requirement 18.4: allow retry on payment failure.
  */
 export async function checkPaymentRetry(
   transactionId: string,
@@ -156,7 +155,9 @@ export async function checkPaymentRetry(
 
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
     if (!user) {
       return { success: false, error: '请先登录' };
@@ -173,9 +174,61 @@ export async function checkPaymentRetry(
       return { success: false, error: '交易记录不存在' };
     }
 
-    const retry = canRetryPayment(row.status as TransactionStatus);
-    return { success: true, data: { canRetry: retry } };
+    return {
+      success: true,
+      data: { canRetry: canRetryPayment(row.status as TransactionStatus) },
+    };
   } catch {
-    return { success: false, error: '服务器错误，请重试' };
+    return { success: false, error: '服务器错误，请稍后重试' };
+  }
+}
+
+/**
+ * Used for client-side polling.
+ */
+export async function getPaymentStatus(
+  transactionId: string,
+): Promise<
+  ActionResult<{
+    status: TransactionStatus;
+    type: PaymentTransactionType;
+    challengeId: string | null;
+  }>
+> {
+  if (!transactionId) {
+    return { success: false, error: '交易 ID 不能为空' };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { success: false, error: '请先登录' };
+    }
+
+    const { data, error } = await supabase
+      .from('payment_transactions')
+      .select('status, type, challenge_id')
+      .eq('transaction_id', transactionId)
+      .eq('user_id', user.id)
+      .single();
+
+    if (error || !data) {
+      return { success: false, error: '交易记录不存在' };
+    }
+
+    return {
+      success: true,
+      data: {
+        status: data.status as TransactionStatus,
+        type: data.type as PaymentTransactionType,
+        challengeId: (data.challenge_id as string) ?? null,
+      },
+    };
+  } catch {
+    return { success: false, error: '服务器错误，请稍后重试' };
   }
 }

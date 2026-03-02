@@ -1,27 +1,56 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Trophy, Calendar, CheckCircle2, XCircle, Loader2, ArrowRight } from 'lucide-react';
+import {
+  Trophy,
+  Calendar,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  ArrowRight,
+  RefreshCw,
+  CreditCard,
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { getActiveChallenge, cancelChallenge } from '@/app/actions/challenge';
+import { getPaymentStatus } from '@/app/actions/payment';
 import { DAILY_REWARDS, CHALLENGE_DEPOSIT } from '@/lib/utils/challenge';
 import type { Challenge } from '@/types';
 
 /**
- * Challenge home page — shows active challenge or invite to join.
- * Requirement 9.1-9.8: Challenge participation flow
+ * Challenge home page.
  */
 export default function ChallengePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+
+  const paymentState = searchParams.get('payment');
+  const tx = searchParams.get('tx');
+  const shouldPollPayment = paymentState === 'pending' && !!tx;
 
   const { data: result, isLoading } = useQuery({
     queryKey: ['activeChallenge'],
     queryFn: () => getActiveChallenge(),
   });
+
+  const paymentStatusQuery = useQuery({
+    queryKey: ['paymentStatus', tx],
+    queryFn: () => getPaymentStatus(tx!),
+    enabled: shouldPollPayment,
+    refetchInterval: shouldPollPayment ? 3000 : false,
+  });
+
+  useEffect(() => {
+    const status = paymentStatusQuery.data?.data?.status;
+    if (status === 'completed') {
+      queryClient.invalidateQueries({ queryKey: ['activeChallenge'] });
+    }
+  }, [paymentStatusQuery.data, queryClient]);
 
   const cancelMutation = useMutation({
     mutationFn: (challengeId: string) => cancelChallenge(challengeId),
@@ -43,6 +72,17 @@ export default function ChallengePage() {
   const challenge = result?.success ? result.data : null;
 
   if (!challenge) {
+    if (shouldPollPayment) {
+      return (
+        <PendingPaymentView
+          tx={tx!}
+          paymentStatus={paymentStatusQuery.data?.data?.status}
+          isChecking={paymentStatusQuery.isFetching}
+          onRefresh={() => paymentStatusQuery.refetch()}
+          onBack={() => router.push('/challenge/join')}
+        />
+      );
+    }
     return <NoChallengeView onJoin={() => router.push('/challenge/join')} />;
   }
 
@@ -53,6 +93,62 @@ export default function ChallengePage() {
       isCancelling={cancelMutation.isPending}
       cancelError={cancelMutation.data?.success === false ? cancelMutation.data.error : undefined}
     />
+  );
+}
+
+function PendingPaymentView({
+  tx,
+  paymentStatus,
+  isChecking,
+  onRefresh,
+  onBack,
+}: {
+  tx: string;
+  paymentStatus?: 'pending' | 'processing' | 'completed' | 'failed';
+  isChecking: boolean;
+  onRefresh: () => void;
+  onBack: () => void;
+}) {
+  const statusText =
+    paymentStatus === 'completed'
+      ? '支付成功，正在激活挑战...'
+      : paymentStatus === 'failed'
+        ? '支付失败，请重新发起支付'
+        : paymentStatus === 'processing'
+          ? '支付处理中，请稍候'
+          : '等待支付完成';
+
+  return (
+    <div className="px-4 py-6">
+      <h1 className="mb-6 text-2xl font-bold">挑战支付中</h1>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CreditCard className="h-5 w-5 text-primary" />
+            押金支付状态
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <p className="text-muted-foreground">交易号: {tx}</p>
+          <p>{statusText}</p>
+
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onRefresh} disabled={isChecking}>
+              {isChecking ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              刷新状态
+            </Button>
+            <Button variant="ghost" onClick={onBack}>
+              返回重试
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -75,7 +171,7 @@ function NoChallengeView({ onJoin }: { onJoin: () => void }) {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-muted-foreground">
-              支付 {CHALLENGE_DEPOSIT} 元押金，坚持 7 天健康饮食，完成任务即可获得返现奖励！
+              支付 {CHALLENGE_DEPOSIT} 元押金，坚持 7 天健康饮食，完成任务可获得返现奖励。
             </p>
 
             <div className="space-y-2">
@@ -126,7 +222,7 @@ function ActiveChallengeView({
   isCancelling: boolean;
   cancelError?: string;
 }) {
-  const completedDays = challenge.dailyTasks.filter((t) => t.completed).length;
+  const completedDays = challenge.dailyTasks.filter((task) => task.completed).length;
   const isPending = challenge.status === 'pending';
 
   return (
@@ -167,7 +263,6 @@ function ActiveChallengeView({
               已完成 <span className="font-bold text-primary">{completedDays}</span> / 7 天
             </div>
 
-            {/* Daily task grid */}
             <div className="grid grid-cols-7 gap-1">
               {challenge.dailyTasks.map((task) => (
                 <div
@@ -191,18 +286,14 @@ function ActiveChallengeView({
 
             {isPending && (
               <div className="space-y-2">
-                {cancelError && (
-                  <p className="text-sm text-destructive">{cancelError}</p>
-                )}
+                {cancelError && <p className="text-sm text-destructive">{cancelError}</p>}
                 <Button
                   variant="outline"
                   className="w-full"
                   onClick={onCancel}
                   disabled={isCancelling}
                 >
-                  {isCancelling ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : null}
+                  {isCancelling ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   取消挑战（全额退款）
                 </Button>
               </div>

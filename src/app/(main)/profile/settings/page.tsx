@@ -25,50 +25,37 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { getUserSettings, logoutUser } from '@/app/actions/settings';
-import type {
-  NotificationSettings,
-  PrivacySettings,
-  AccountSettings,
-} from '@/lib/utils/settings';
+import {
+  getUserSettings,
+  logoutUser,
+  updateNotificationSettings,
+  updatePrivacySettings,
+} from '@/app/actions/settings';
+import { savePushSubscription, removePushSubscription } from '@/app/actions/push';
 import {
   getDefaultSettings,
+  type NotificationSettings,
+  type PrivacySettings,
+  type AccountSettings,
 } from '@/lib/utils/settings';
+import {
+  isPushSupported,
+  getPushState,
+  subscribeToPush,
+  unsubscribeFromPush,
+  serializePushSubscription,
+} from '@/lib/push/push-subscription';
 
-const STORAGE_KEY_NOTIFICATIONS = 'chi-le-me-notification-settings';
-const STORAGE_KEY_PRIVACY = 'chi-le-me-privacy-settings';
-
-function loadLocalSettings<T>(key: string, defaults: T): T {
-  if (typeof window === 'undefined') return defaults;
-  try {
-    const stored = localStorage.getItem(key);
-    if (stored) {
-      return { ...defaults, ...JSON.parse(stored) };
-    }
-  } catch {
-    // ignore parse errors
-  }
-  return defaults;
+function shouldEnablePush(settings: NotificationSettings): boolean {
+  return Object.values(settings).some(Boolean);
 }
 
-function saveLocalSettings(key: string, value: unknown): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // ignore storage errors
-  }
-}
-
-/**
- * Settings page.
- * Requirement 16.6: Provide settings options (notifications, privacy, account)
- */
 export default function SettingsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [savingHint, setSavingHint] = useState<string | null>(null);
 
   const defaults = getDefaultSettings();
   const [notifications, setNotifications] = useState<NotificationSettings>(
@@ -79,49 +66,97 @@ export default function SettingsPage() {
 
   useEffect(() => {
     async function load() {
-      // Load local preferences
-      const localNotif = loadLocalSettings(
-        STORAGE_KEY_NOTIFICATIONS,
-        defaults.notifications,
-      );
-      const localPrivacy = loadLocalSettings(
-        STORAGE_KEY_PRIVACY,
-        defaults.privacy,
-      );
-      setNotifications(localNotif);
-      setPrivacy(localPrivacy);
-
-      // Load account info from server
       const result = await getUserSettings();
       if (result.success && result.data) {
+        setNotifications(result.data.notifications);
+        setPrivacy(result.data.privacy);
         setAccount(result.data.account);
       }
       setLoading(false);
     }
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const syncPushState = useCallback(async (next: NotificationSettings) => {
+    if (!isPushSupported()) {
+      return;
+    }
+
+    const needsPush = shouldEnablePush(next);
+    const state = await getPushState();
+
+    if (needsPush && !state.subscribed) {
+      const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+      if (!vapidPublicKey) {
+        setSavingHint('已保存设置，但未配置 VAPID 公钥，无法启用推送');
+        return;
+      }
+
+      const subscription = await subscribeToPush(vapidPublicKey);
+      if (!subscription) {
+        setSavingHint('通知权限未授予，推送订阅失败');
+        return;
+      }
+
+      const payload = serializePushSubscription(subscription);
+      await savePushSubscription(payload);
+      return;
+    }
+
+    if (!needsPush && state.subscribed) {
+      let endpoint = '';
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        const active = await registration.pushManager.getSubscription();
+        endpoint = active?.endpoint ?? '';
+      } catch {
+        endpoint = '';
+      }
+
+      await unsubscribeFromPush();
+      if (endpoint) {
+        await removePushSubscription(endpoint);
+      }
+    }
   }, []);
 
   const updateNotification = useCallback(
-    (key: keyof NotificationSettings, value: boolean) => {
-      setNotifications((prev) => {
-        const next = { ...prev, [key]: value };
-        saveLocalSettings(STORAGE_KEY_NOTIFICATIONS, next);
-        return next;
-      });
+    async (key: keyof NotificationSettings, value: boolean) => {
+      const next = { ...notifications, [key]: value };
+      setNotifications(next);
+      setSavingHint('正在保存...');
+
+      const result = await updateNotificationSettings(next);
+      if (!result.success) {
+        setNotifications(notifications);
+        setSavingHint(result.error ?? '保存失败');
+        return;
+      }
+
+      await syncPushState(next);
+      setSavingHint('已保存');
+      setTimeout(() => setSavingHint(null), 1500);
     },
-    [],
+    [notifications, syncPushState],
   );
 
   const updatePrivacy = useCallback(
-    (key: keyof PrivacySettings, value: boolean) => {
-      setPrivacy((prev) => {
-        const next = { ...prev, [key]: value };
-        saveLocalSettings(STORAGE_KEY_PRIVACY, next);
-        return next;
-      });
+    async (key: keyof PrivacySettings, value: boolean) => {
+      const next = { ...privacy, [key]: value };
+      setPrivacy(next);
+      setSavingHint('正在保存...');
+
+      const result = await updatePrivacySettings(next);
+      if (!result.success) {
+        setPrivacy(privacy);
+        setSavingHint(result.error ?? '保存失败');
+        return;
+      }
+
+      setSavingHint('已保存');
+      setTimeout(() => setSavingHint(null), 1500);
     },
-    [],
+    [privacy],
   );
 
   const handleLogout = useCallback(async () => {
@@ -145,25 +180,18 @@ export default function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-lg px-4 py-4">
-      {/* Header */}
       <div className="mb-6 flex items-center gap-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => router.back()}
-          aria-label="返回"
-        >
+        <Button variant="ghost" size="icon" onClick={() => router.back()} aria-label="返回">
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <h1 className="text-lg font-semibold">设置</h1>
       </div>
 
-      {/* Notification Settings */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-      >
+      {savingHint && (
+        <p className="mb-3 text-xs text-muted-foreground">{savingHint}</p>
+      )}
+
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
         <SectionHeader icon={<Bell className="h-4 w-4" />} title="通知设置" />
         <Card className="mb-5">
           <CardContent className="divide-y p-0">
@@ -179,33 +207,26 @@ export default function SettingsPage() {
               label="社交通知"
               description="收到点赞、评论时通知"
               checked={notifications.socialNotifications}
-              onCheckedChange={(v) =>
-                updateNotification('socialNotifications', v)
-              }
+              onCheckedChange={(v) => updateNotification('socialNotifications', v)}
             />
             <SettingToggle
               id="systemNotifications"
               label="系统通知"
               description="系统公告和维护通知"
               checked={notifications.systemNotifications}
-              onCheckedChange={(v) =>
-                updateNotification('systemNotifications', v)
-              }
+              onCheckedChange={(v) => updateNotification('systemNotifications', v)}
             />
             <SettingToggle
               id="challengeNotifications"
               label="挑战通知"
               description="挑战进度和奖励发放通知"
               checked={notifications.challengeNotifications}
-              onCheckedChange={(v) =>
-                updateNotification('challengeNotifications', v)
-              }
+              onCheckedChange={(v) => updateNotification('challengeNotifications', v)}
             />
           </CardContent>
         </Card>
       </motion.div>
 
-      {/* Privacy Settings */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -239,13 +260,12 @@ export default function SettingsPage() {
         </Card>
       </motion.div>
 
-      {/* Account Settings */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, delay: 0.1 }}
       >
-        <SectionHeader icon={<User className="h-4 w-4" />} title="账户设置" />
+        <SectionHeader icon={<User className="h-4 w-4" />} title="账号设置" />
         <Card className="mb-5">
           <CardContent className="divide-y p-0">
             <AccountRow
@@ -254,9 +274,7 @@ export default function SettingsPage() {
               value={account.phone || '未绑定'}
             />
             <AccountRow
-              icon={
-                <MessageCircle className="h-4 w-4 text-muted-foreground" />
-              }
+              icon={<MessageCircle className="h-4 w-4 text-muted-foreground" />}
               label="微信"
               value={account.wechatBound ? '已绑定' : '未绑定'}
             />
@@ -264,7 +282,6 @@ export default function SettingsPage() {
         </Card>
       </motion.div>
 
-      {/* Logout */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -280,31 +297,20 @@ export default function SettingsPage() {
         </Button>
       </motion.div>
 
-      {/* Logout Confirmation Dialog */}
       <Dialog open={logoutDialogOpen} onOpenChange={setLogoutDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>确认退出</DialogTitle>
             <DialogDescription>
-              退出登录后需要重新验证才能使用应用。确定要退出吗？
+              退出登录后需要重新验证才能使用应用，确认继续吗？
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              variant="outline"
-              onClick={() => setLogoutDialogOpen(false)}
-              disabled={loggingOut}
-            >
+            <Button variant="outline" onClick={() => setLogoutDialogOpen(false)} disabled={loggingOut}>
               取消
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleLogout}
-              disabled={loggingOut}
-            >
-              {loggingOut ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : null}
+            <Button variant="destructive" onClick={handleLogout} disabled={loggingOut}>
+              {loggingOut ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               确认退出
             </Button>
           </DialogFooter>
@@ -314,15 +320,7 @@ export default function SettingsPage() {
   );
 }
 
-// --- Sub-components ---
-
-function SectionHeader({
-  icon,
-  title,
-}: {
-  icon: React.ReactNode;
-  title: string;
-}) {
+function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
   return (
     <div className="mb-2 flex items-center gap-2 px-1">
       {icon}

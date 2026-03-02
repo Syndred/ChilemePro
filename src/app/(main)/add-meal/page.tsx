@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -10,10 +10,11 @@ import { Label } from '@/components/ui/label';
 import { FoodSearch, type FoodSearchItem } from '@/components/meal/FoodSearch';
 import { calculateFoodNutrition, calculateMealTotals } from '@/lib/utils/food-calorie';
 import { createMealRecord } from '@/app/actions/meal';
-import type { MealType } from '@/types';
+import { enqueueSync, cacheMealRecord } from '@/lib/offline/offline-store';
+import type { MealType, RecognizedFood } from '@/types';
 
 const MEAL_TYPES: { value: MealType; label: string; emoji: string }[] = [
-  { value: 'breakfast', label: '早餐', emoji: '🌅' },
+  { value: 'breakfast', label: '早餐', emoji: '🍞' },
   { value: 'lunch', label: '午餐', emoji: '☀️' },
   { value: 'dinner', label: '晚餐', emoji: '🌙' },
   { value: 'snack', label: '加餐', emoji: '🍪' },
@@ -30,6 +31,19 @@ interface AddedFood {
   unit: string;
 }
 
+function mapRecognizedFoodToAdded(food: RecognizedFood, index: number): AddedFood {
+  return {
+    key: `${food.name}-${Date.now()}-${index}`,
+    name: food.name,
+    calories: food.calories,
+    protein: food.protein,
+    fat: food.fat,
+    carbs: food.carbs,
+    serving: 100,
+    unit: 'g',
+  };
+}
+
 export default function AddMealPage() {
   const router = useRouter();
   const [mealType, setMealType] = useState<MealType>('lunch');
@@ -37,13 +51,29 @@ export default function AddMealPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('ai-recognized-foods');
+      if (!raw) {
+        return;
+      }
+      const recognized = JSON.parse(raw) as RecognizedFood[];
+      if (Array.isArray(recognized) && recognized.length > 0) {
+        setFoods(recognized.map(mapRecognizedFoodToAdded));
+      }
+      sessionStorage.removeItem('ai-recognized-foods');
+    } catch {
+      // Ignore malformed cache
+    }
+  }, []);
+
   const handleFoodSelect = (food: FoodSearchItem) => {
     const nutrition = calculateFoodNutrition({
       caloriesPerServing: food.caloriesPerServing,
       proteinPerServing: food.proteinPerServing,
       fatPerServing: food.fatPerServing,
       carbsPerServing: food.carbsPerServing,
-      quantity: food.defaultServing / 100, // normalize to per-100 base
+      quantity: food.defaultServing / 100,
     });
 
     setFoods((prev) => [
@@ -65,7 +95,6 @@ export default function AddMealPage() {
     setFoods((prev) =>
       prev.map((food, i) => {
         if (i !== index) return food;
-        // Recalculate based on ratio change
         const ratio = newServing / food.serving;
         return {
           ...food,
@@ -85,6 +114,41 @@ export default function AddMealPage() {
 
   const totals = calculateMealTotals(foods);
 
+  const queueOfflineRecord = async () => {
+    const recordId = `offline_${Date.now()}`;
+    const payload = {
+      mealType,
+      foods: foods.map((f) => ({
+        name: f.name,
+        calories: f.calories,
+        protein: f.protein,
+        fat: f.fat,
+        carbs: f.carbs,
+        serving: f.serving,
+        unit: f.unit,
+      })),
+      recordedAt: new Date().toISOString(),
+    };
+
+    await enqueueSync({
+      operation: 'create',
+      tableName: 'meal_records',
+      recordId,
+      data: payload,
+    });
+
+    await cacheMealRecord({
+      id: recordId,
+      updated_at: new Date().toISOString(),
+      meal_type: mealType,
+      total_calories: totals.calories,
+      total_protein: totals.protein,
+      total_fat: totals.fat,
+      total_carbs: totals.carbs,
+      foods: payload.foods,
+    });
+  };
+
   const handleSubmit = async () => {
     if (foods.length === 0) {
       setError('请至少添加一种食物');
@@ -94,7 +158,7 @@ export default function AddMealPage() {
     setIsSubmitting(true);
     setError(null);
 
-    const result = await createMealRecord({
+    const payload = {
       mealType,
       foods: foods.map((f) => ({
         name: f.name,
@@ -106,33 +170,50 @@ export default function AddMealPage() {
         unit: f.unit,
       })),
       recordedAt: new Date(),
-    });
+    };
 
-    setIsSubmitting(false);
+    try {
+      if (!navigator.onLine) {
+        await queueOfflineRecord();
+        router.push('/');
+        return;
+      }
 
-    if (result.success) {
-      router.push('/');
-    } else {
+      const result = await createMealRecord(payload);
+      if (result.success) {
+        router.push('/');
+        return;
+      }
+
+      // If network drops during request, queue it for retry.
+      if (!navigator.onLine) {
+        await queueOfflineRecord();
+        router.push('/');
+        return;
+      }
+
       setError(result.error ?? '保存失败');
+    } catch {
+      if (!navigator.onLine) {
+        await queueOfflineRecord();
+        router.push('/');
+        return;
+      }
+      setError('网络异常，请重试');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
     <div className="mx-auto max-w-lg px-4 py-4">
-      {/* Header */}
       <div className="mb-4 flex items-center gap-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => router.back()}
-          aria-label="返回"
-        >
+        <Button variant="ghost" size="icon" onClick={() => router.back()} aria-label="返回">
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <h1 className="text-lg font-semibold">添加饮食记录</h1>
       </div>
 
-      {/* Meal type selection - Requirement 3.1 */}
       <div className="mb-4">
         <Label className="mb-2 block text-sm">选择餐次</Label>
         <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label="餐次选择">
@@ -156,7 +237,6 @@ export default function AddMealPage() {
         </div>
       </div>
 
-      {/* Food search - Requirement 3.5, 3.6 */}
       <Card className="mb-4 py-4">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">添加食物</CardTitle>
@@ -166,7 +246,6 @@ export default function AddMealPage() {
         </CardContent>
       </Card>
 
-      {/* Added foods list */}
       {foods.length > 0 && (
         <Card className="mb-4 py-4">
           <CardHeader className="pb-2">
@@ -174,23 +253,18 @@ export default function AddMealPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             {foods.map((food, index) => (
-              <div
-                key={food.key}
-                className="flex items-center gap-2 rounded-md border p-2"
-              >
+              <div key={food.key} className="flex items-center gap-2 rounded-md border p-2">
                 <div className="flex-1">
                   <div className="text-sm font-medium">{food.name}</div>
                   <div className="text-xs text-muted-foreground">
-                    {food.calories}千卡 · 蛋白质{food.protein}g · 脂肪{food.fat}g · 碳水{food.carbs}g
+                    {food.calories}千卡 | 蛋白质{food.protein}g | 脂肪{food.fat}g | 碳水{food.carbs}g
                   </div>
                 </div>
                 <Input
                   type="number"
                   min={1}
                   value={food.serving}
-                  onChange={(e) =>
-                    handleServingChange(index, Number(e.target.value) || 1)
-                  }
+                  onChange={(e) => handleServingChange(index, Number(e.target.value) || 1)}
                   className="w-16 text-center"
                   aria-label={`${food.name}份量`}
                 />
@@ -207,7 +281,6 @@ export default function AddMealPage() {
               </div>
             ))}
 
-            {/* Totals */}
             <div className="border-t pt-2">
               <div className="flex items-center justify-between text-sm font-medium">
                 <span>总计</span>
@@ -223,20 +296,13 @@ export default function AddMealPage() {
         </Card>
       )}
 
-      {/* Error message */}
       {error && (
         <p className="mb-4 text-center text-sm text-destructive" role="alert">
           {error}
         </p>
       )}
 
-      {/* Submit button */}
-      <Button
-        className="w-full"
-        size="lg"
-        onClick={handleSubmit}
-        disabled={isSubmitting || foods.length === 0}
-      >
+      <Button className="w-full" size="lg" onClick={handleSubmit} disabled={isSubmitting || foods.length === 0}>
         {isSubmitting ? '保存中...' : '保存记录'}
       </Button>
     </div>

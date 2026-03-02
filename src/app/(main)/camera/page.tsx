@@ -2,34 +2,45 @@
 
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Loader2, AlertCircle, RefreshCw, Pencil } from 'lucide-react';
+import { ArrowLeft, Loader2, AlertCircle, RefreshCw, Pencil, Crown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { CameraCapture } from '@/components/ai/CameraCapture';
 import { FoodSearch, type FoodSearchItem } from '@/components/meal/FoodSearch';
+import { checkAiPhotoAccess } from '@/app/actions/membership';
 import type { FoodRecognitionResult, RecognizedFood } from '@/types';
 
-type PageState =
-  | 'capture'      // Taking / selecting photo
-  | 'recognizing'  // AI processing
-  | 'result'       // AI returned results
-  | 'manual'       // Manual fallback mode
-  | 'error';       // Upload / recognition error
+type PageState = 'capture' | 'recognizing' | 'result' | 'manual' | 'error';
 
 export default function CameraPage() {
   const router = useRouter();
   const [state, setState] = useState<PageState>('capture');
   const [recognitionResult, setRecognitionResult] = useState<FoodRecognitionResult | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState('');
   const [capturedImage, setCapturedImage] = useState<File | null>(null);
   const [selectedFoods, setSelectedFoods] = useState<RecognizedFood[]>([]);
+  const [showUpgrade, setShowUpgrade] = useState(false);
 
-  // ── Handle photo capture ──────────────────────────────────────
   const handleCapture = useCallback(async (image: File) => {
     setCapturedImage(image);
     setState('recognizing');
     setErrorMessage('');
+    setShowUpgrade(false);
+
+    const access = await checkAiPhotoAccess();
+    if (!access.success || !access.data) {
+      setErrorMessage(access.error ?? '无法校验 AI 使用权限，请重试');
+      setState('error');
+      return;
+    }
+
+    if (!access.data.allowed) {
+      setErrorMessage(access.data.reason ?? '今日 AI 识别次数已用完');
+      setShowUpgrade(true);
+      setState('error');
+      return;
+    }
 
     try {
       const formData = new FormData();
@@ -39,39 +50,39 @@ export default function CameraPage() {
         method: 'POST',
         body: formData,
       });
-
       const data = await response.json();
 
+      if (data.limitExceeded) {
+        setErrorMessage(data.error ?? '今日 AI 识别次数已用完');
+        setShowUpgrade(true);
+        setState('error');
+        return;
+      }
+
       if (data.timedOut) {
-        // Requirement 4.5 & 4.7: timeout → manual mode
         setState('manual');
         return;
       }
 
       if (!response.ok || !data.success) {
         if (data.data?.foods?.length === 0) {
-          // No foods recognized → manual mode
           setState('manual');
           return;
         }
-        // Requirement 4.6: show error and allow retry
         setErrorMessage(data.error || '识别失败，请重试');
         setState('error');
         return;
       }
 
-      // Requirement 4.3: display recognized food name, calories, nutrition
       setRecognitionResult(data.data);
       setSelectedFoods(data.data.foods);
       setState('result');
     } catch {
-      // Requirement 4.6: show error and allow retry on upload failure
       setErrorMessage('上传失败，请检查网络后重试');
       setState('error');
     }
   }, []);
 
-  // ── Retry recognition ─────────────────────────────────────────
   const handleRetry = useCallback(() => {
     if (capturedImage) {
       handleCapture(capturedImage);
@@ -80,12 +91,10 @@ export default function CameraPage() {
     }
   }, [capturedImage, handleCapture]);
 
-  // ── Switch to manual mode ─────────────────────────────────────
   const handleSwitchToManual = useCallback(() => {
     setState('manual');
   }, []);
 
-  // ── Handle manual food selection ──────────────────────────────
   const handleManualFoodSelect = useCallback((food: FoodSearchItem) => {
     const recognized: RecognizedFood = {
       name: food.name,
@@ -98,14 +107,11 @@ export default function CameraPage() {
     setSelectedFoods((prev) => [...prev, recognized]);
   }, []);
 
-  // ── Remove a food from selection ──────────────────────────────
   const handleRemoveFood = useCallback((index: number) => {
     setSelectedFoods((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  // ── Confirm and go to add-meal ────────────────────────────────
   const handleConfirm = useCallback(() => {
-    // Store selected foods in sessionStorage for the add-meal page to pick up
     if (selectedFoods.length > 0) {
       sessionStorage.setItem('ai-recognized-foods', JSON.stringify(selectedFoods));
     }
@@ -114,7 +120,6 @@ export default function CameraPage() {
 
   return (
     <div className="mx-auto max-w-lg px-4 py-4">
-      {/* Header */}
       <div className="mb-4 flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => router.back()} aria-label="返回">
           <ArrowLeft className="h-5 w-5" />
@@ -125,17 +130,12 @@ export default function CameraPage() {
       </div>
 
       <AnimatePresence mode="wait">
-        {/* ── Capture state ──────────────────────────────────── */}
         {state === 'capture' && (
           <motion.div key="capture" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <CameraCapture
-              onCapture={handleCapture}
-              onCancel={() => router.back()}
-            />
+            <CameraCapture onCapture={handleCapture} onCancel={() => router.back()} />
           </motion.div>
         )}
 
-        {/* ── Recognizing state ──────────────────────────────── */}
         {state === 'recognizing' && (
           <motion.div
             key="recognizing"
@@ -153,7 +153,6 @@ export default function CameraPage() {
           </motion.div>
         )}
 
-        {/* ── Result state ───────────────────────────────────── */}
         {state === 'result' && recognitionResult && (
           <motion.div
             key="result"
@@ -163,18 +162,17 @@ export default function CameraPage() {
             className="space-y-4"
           >
             <p className="text-sm text-muted-foreground">
-              识别完成 · 耗时 {(recognitionResult.processingTime / 1000).toFixed(1)}s
-              · 置信度 {Math.round(recognitionResult.confidence * 100)}%
+              识别完成，耗时 {(recognitionResult.processingTime / 1000).toFixed(1)}s，
+              置信度 {Math.round(recognitionResult.confidence * 100)}%
             </p>
 
-            {/* Recognized foods list */}
             <div className="space-y-2">
               {selectedFoods.map((food, idx) => (
-                <Card key={idx} className="flex items-center justify-between p-3">
+                <Card key={`${food.name}-${idx}`} className="flex items-center justify-between p-3">
                   <div>
                     <p className="font-medium">{food.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      {food.calories} 千卡 · 蛋白质 {food.protein}g · 脂肪 {food.fat}g · 碳水 {food.carbs}g
+                      {food.calories} 千卡 | 蛋白质 {food.protein}g | 脂肪 {food.fat}g | 碳水 {food.carbs}g
                     </p>
                   </div>
                   <Button
@@ -189,7 +187,6 @@ export default function CameraPage() {
               ))}
             </div>
 
-            {/* Requirement 4.4: allow manual correction */}
             <Button variant="outline" className="w-full" onClick={handleSwitchToManual}>
               <Pencil className="mr-1 h-4 w-4" />
               手动修正 / 添加更多食物
@@ -201,7 +198,6 @@ export default function CameraPage() {
           </motion.div>
         )}
 
-        {/* ── Manual fallback state ──────────────────────────── */}
         {state === 'manual' && (
           <motion.div
             key="manual"
@@ -216,16 +212,15 @@ export default function CameraPage() {
 
             <FoodSearch onSelect={handleManualFoodSelect} />
 
-            {/* Selected foods */}
             {selectedFoods.length > 0 && (
               <div className="space-y-2">
                 <p className="text-sm font-medium">已选择的食物</p>
                 {selectedFoods.map((food, idx) => (
-                  <Card key={idx} className="flex items-center justify-between p-3">
+                  <Card key={`${food.name}-${idx}`} className="flex items-center justify-between p-3">
                     <div>
                       <p className="font-medium">{food.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        {food.calories} 千卡 · 蛋白质 {food.protein}g · 脂肪 {food.fat}g · 碳水 {food.carbs}g
+                        {food.calories} 千卡 | 蛋白质 {food.protein}g | 脂肪 {food.fat}g | 碳水 {food.carbs}g
                       </p>
                     </div>
                     <Button
@@ -247,7 +242,6 @@ export default function CameraPage() {
           </motion.div>
         )}
 
-        {/* ── Error state ────────────────────────────────────── */}
         {state === 'error' && (
           <motion.div
             key="error"
@@ -268,6 +262,12 @@ export default function CameraPage() {
               <Button variant="outline" onClick={handleSwitchToManual}>
                 手动录入
               </Button>
+              {showUpgrade && (
+                <Button onClick={() => router.push('/profile/membership')}>
+                  <Crown className="mr-1 h-4 w-4" />
+                  升级会员
+                </Button>
+              )}
             </div>
           </motion.div>
         )}
