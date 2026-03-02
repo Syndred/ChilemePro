@@ -22,6 +22,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Loader2, TrendingDown, TrendingUp, Minus } from 'lucide-react';
 
 type Period = 'week' | 'month';
+type DailyCalorieData = { date: string; calories: number };
+
+function toLocalDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseLocalDateKey(dateKey: string): Date {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(year, month - 1, day, 12, 0, 0, 0);
+}
 
 /** Get date range for a given period ending today. */
 function getDateRange(period: Period) {
@@ -42,7 +55,7 @@ function generateDateLabels(start: Date, end: Date): string[] {
   const labels: string[] = [];
   const current = new Date(start);
   while (current <= end) {
-    labels.push(current.toISOString().split('T')[0]);
+    labels.push(toLocalDateKey(current));
     current.setDate(current.getDate() + 1);
   }
   return labels;
@@ -51,7 +64,7 @@ function generateDateLabels(start: Date, end: Date): string[] {
 /** Format date string to short label (MM/DD). */
 function formatDateLabel(dateStr: string): string {
   const [, m, d] = dateStr.split('-');
-  return `${parseInt(m)}/${parseInt(d)}`;
+  return `${Number(m)}/${Number(d)}`;
 }
 
 /**
@@ -74,12 +87,19 @@ export default function StatsPage() {
   });
 
   // Fetch meal records for each day in the range
-  const { data: calorieData, isLoading: calorieLoading } = useQuery({
+  const {
+    data: calorieData,
+    isLoading: calorieLoading,
+    error: calorieError,
+  } = useQuery<DailyCalorieData[]>({
     queryKey: ['calorieStats', period],
     queryFn: async () => {
       const results = await Promise.all(
         dateLabels.map(async (dateStr) => {
-          const result = await getMealRecordsByDate(new Date(dateStr));
+          const result = await getMealRecordsByDate(parseLocalDateKey(dateStr));
+          if (!result.success) {
+            throw new Error(result.error ?? '加载热量统计失败');
+          }
           const totalCalories = (result.data ?? []).reduce(
             (sum, m) => sum + m.totalCalories,
             0,
@@ -92,9 +112,19 @@ export default function StatsPage() {
   });
 
   // Fetch weight records for the range
-  const { data: weightResult, isLoading: weightLoading } = useQuery({
+  const {
+    data: weightRecords,
+    isLoading: weightLoading,
+    error: weightError,
+  } = useQuery({
     queryKey: ['weightRecords', period],
-    queryFn: () => getWeightRecords(start, end),
+    queryFn: async () => {
+      const result = await getWeightRecords(start, end);
+      if (!result.success) {
+        throw new Error(result.error ?? '加载体重记录失败');
+      }
+      return result.data ?? [];
+    },
   });
 
   const target = profileResult?.data?.dailyCalorieTarget ?? 2000;
@@ -111,25 +141,29 @@ export default function StatsPage() {
 
   // Build weight chart data — fill in dates with no record as null
   const weightChartData = useMemo(() => {
-    const records = weightResult?.data ?? [];
+    const records = weightRecords ?? [];
     const weightMap = new Map(
-      records.map((r) => [r.recordedAt.toISOString().split('T')[0], r.weight]),
+      records.map((r) => [toLocalDateKey(r.recordedAt), r.weight]),
     );
     return dateLabels.map((dateStr) => ({
       date: formatDateLabel(dateStr),
       weight: weightMap.get(dateStr) ?? null,
     }));
-  }, [weightResult, dateLabels]);
+  }, [weightRecords, dateLabels]);
 
   // Weight trend calculation
   const weightTrend = useMemo(() => {
-    const records = weightResult?.data ?? [];
+    const records = weightRecords ?? [];
     if (records.length < 2) return null;
     const first = records[0].weight;
     const last = records[records.length - 1].weight;
     const diff = last - first;
     return { diff: Math.round(diff * 10) / 10, direction: diff > 0 ? 'up' : diff < 0 ? 'down' : 'same' as const };
-  }, [weightResult]);
+  }, [weightRecords]);
+
+  const hasCalorieData = calorieChartData.some((item) => item.calories > 0);
+  const queryErrorMessage =
+    (calorieError as Error | null)?.message ?? (weightError as Error | null)?.message ?? null;
 
   const isLoading = calorieLoading || weightLoading;
 
@@ -137,6 +171,18 @@ export default function StatsPage() {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (queryErrorMessage) {
+    return (
+      <div className="mx-auto max-w-lg p-4">
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-destructive">{queryErrorMessage}</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -164,7 +210,7 @@ export default function StatsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {calorieChartData.length > 0 ? (
+              {hasCalorieData ? (
                 <ResponsiveContainer width="100%" height={220}>
                   <ComposedChart data={calorieChartData}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -187,14 +233,14 @@ export default function StatsPage() {
                     />
                     <Bar
                       dataKey="calories"
-                      fill="hsl(var(--primary))"
+                      fill="var(--primary)"
                       radius={[4, 4, 0, 0]}
                       name="calories"
                     />
                     <Line
                       type="monotone"
                       dataKey="target"
-                      stroke="hsl(var(--destructive))"
+                      stroke="var(--destructive)"
                       strokeDasharray="5 5"
                       dot={false}
                       name="target"
@@ -232,7 +278,7 @@ export default function StatsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {(weightResult?.data ?? []).length > 0 ? (
+              {(weightRecords ?? []).length > 0 ? (
                 <ResponsiveContainer width="100%" height={220}>
                   <LineChart data={weightChartData}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -257,9 +303,9 @@ export default function StatsPage() {
                     <Line
                       type="monotone"
                       dataKey="weight"
-                      stroke="hsl(var(--primary))"
+                      stroke="var(--primary)"
                       strokeWidth={2}
-                      dot={{ r: 3, fill: 'hsl(var(--primary))' }}
+                      dot={{ r: 3, fill: 'var(--primary)' }}
                       activeDot={{ r: 5 }}
                       connectNulls
                     />

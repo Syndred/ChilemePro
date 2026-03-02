@@ -13,7 +13,9 @@ import {
 } from '@/lib/utils/social';
 
 interface CreatePostProps {
-  onSubmit: (data: { content: string; images: string[] }) => Promise<void>;
+  onSubmit: (
+    data: { content: string; images: string[] },
+  ) => Promise<{ success: boolean; error?: string }>;
   isSubmitting?: boolean;
 }
 
@@ -21,7 +23,7 @@ function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error('Failed to read image file'));
+    reader.onerror = () => reject(new Error('图片读取失败'));
     reader.readAsDataURL(file);
   });
 }
@@ -80,7 +82,11 @@ export default function CreatePost({ onSubmit, isSubmitting }: CreatePostProps) 
     }
 
     try {
-      await onSubmit({ content, images });
+      const result = await onSubmit({ content: content.trim(), images });
+      if (!result.success) {
+        setError(result.error ?? '发布失败，请重试');
+        return;
+      }
       setContent('');
       setImages([]);
       setError(null);

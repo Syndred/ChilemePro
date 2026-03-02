@@ -1,13 +1,12 @@
 'use client';
 
-import { useState, useTransition, useCallback } from 'react';
+import { useState, useTransition, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -18,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { NumberStepperField } from '@/components/form/NumberStepperField';
 import { onboardingSchema, type OnboardingFormValues } from '@/lib/validations/onboarding';
 import { calculateDailyCalories } from '@/lib/utils/calorie';
 import { saveUserProfile } from '@/app/actions/user';
@@ -37,6 +37,13 @@ const ACTIVITY_OPTIONS: { value: ActivityLevel; label: string; desc: string }[] 
   { value: 'very_active', label: '极高活动', desc: '高强度训练或体力劳动' },
 ];
 
+const DEFAULT_ONBOARDING_VALUES = {
+  height: 170,
+  weight: 65,
+  targetWeight: 60,
+  age: 25,
+} as const;
+
 export default function OnboardingPage() {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -46,10 +53,10 @@ export default function OnboardingPage() {
   const form = useForm<OnboardingFormValues>({
     resolver: zodResolver(onboardingSchema),
     defaultValues: {
-      height: undefined,
-      weight: undefined,
-      targetWeight: undefined,
-      age: undefined,
+      height: DEFAULT_ONBOARDING_VALUES.height,
+      weight: DEFAULT_ONBOARDING_VALUES.weight,
+      targetWeight: DEFAULT_ONBOARDING_VALUES.targetWeight,
+      age: DEFAULT_ONBOARDING_VALUES.age,
       gender: 'male',
       activityLevel: 'moderate',
     },
@@ -70,6 +77,25 @@ export default function OnboardingPage() {
     }
     setCaloriePreview(null);
   }, [form]);
+
+  useEffect(() => {
+    updateCaloriePreview();
+  }, [updateCaloriePreview]);
+
+  const handleNumericFieldChange = useCallback(
+    (
+      field: 'height' | 'weight' | 'targetWeight' | 'age',
+      value: number | undefined,
+    ) => {
+      form.setValue(field, value as never, {
+        shouldDirty: true,
+        shouldTouch: true,
+        shouldValidate: true,
+      });
+      updateCaloriePreview();
+    },
+    [form, updateCaloriePreview],
+  );
 
   const onSubmit = useCallback(
     (data: OnboardingFormValues) => {
@@ -124,7 +150,7 @@ export default function OnboardingPage() {
               <div className="space-y-2">
                 <Label>性别</Label>
                 <RadioGroup
-                  defaultValue="male"
+                  value={form.watch('gender')}
                   onValueChange={(v) => {
                     form.setValue('gender', v as Gender, { shouldValidate: true });
                     updateCaloriePreview();
@@ -149,93 +175,68 @@ export default function OnboardingPage() {
 
               {/* Height & Weight row */}
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="height">身高 (cm)</Label>
-                  <Input
-                    id="height"
-                    type="number"
-                    inputMode="decimal"
-                    placeholder="170"
-                    aria-describedby="height-error"
-                    {...form.register('height', { valueAsNumber: true })}
-                    onChange={(e) => {
-                      form.register('height', { valueAsNumber: true }).onChange(e);
-                      updateCaloriePreview();
-                    }}
-                  />
-                  {form.formState.errors.height && (
-                    <p id="height-error" className="text-sm text-destructive" role="alert">
-                      {form.formState.errors.height.message}
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="weight">体重 (kg)</Label>
-                  <Input
-                    id="weight"
-                    type="number"
-                    inputMode="decimal"
-                    placeholder="65"
-                    aria-describedby="weight-error"
-                    {...form.register('weight', { valueAsNumber: true })}
-                    onChange={(e) => {
-                      form.register('weight', { valueAsNumber: true }).onChange(e);
-                      updateCaloriePreview();
-                    }}
-                  />
-                  {form.formState.errors.weight && (
-                    <p id="weight-error" className="text-sm text-destructive" role="alert">
-                      {form.formState.errors.weight.message}
-                    </p>
-                  )}
-                </div>
+                <NumberStepperField
+                  id="height"
+                  label="身高"
+                  unit="cm"
+                  min={100}
+                  max={250}
+                  step={1}
+                  placeholder="170"
+                  value={form.watch('height')}
+                  fallbackValue={DEFAULT_ONBOARDING_VALUES.height}
+                  error={form.formState.errors.height?.message}
+                  onChange={(value) => handleNumericFieldChange('height', value)}
+                />
+                <NumberStepperField
+                  id="weight"
+                  label="体重"
+                  unit="kg"
+                  min={30}
+                  max={300}
+                  step={0.5}
+                  placeholder="65"
+                  value={form.watch('weight')}
+                  fallbackValue={DEFAULT_ONBOARDING_VALUES.weight}
+                  error={form.formState.errors.weight?.message}
+                  onChange={(value) => handleNumericFieldChange('weight', value)}
+                />
               </div>
 
               {/* Target Weight & Age row */}
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="targetWeight">目标体重 (kg)</Label>
-                  <Input
-                    id="targetWeight"
-                    type="number"
-                    inputMode="decimal"
-                    placeholder="60"
-                    aria-describedby="targetWeight-error"
-                    {...form.register('targetWeight', { valueAsNumber: true })}
-                  />
-                  {form.formState.errors.targetWeight && (
-                    <p id="targetWeight-error" className="text-sm text-destructive" role="alert">
-                      {form.formState.errors.targetWeight.message}
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="age">年龄</Label>
-                  <Input
-                    id="age"
-                    type="number"
-                    inputMode="numeric"
-                    placeholder="25"
-                    aria-describedby="age-error"
-                    {...form.register('age', { valueAsNumber: true })}
-                    onChange={(e) => {
-                      form.register('age', { valueAsNumber: true }).onChange(e);
-                      updateCaloriePreview();
-                    }}
-                  />
-                  {form.formState.errors.age && (
-                    <p id="age-error" className="text-sm text-destructive" role="alert">
-                      {form.formState.errors.age.message}
-                    </p>
-                  )}
-                </div>
+                <NumberStepperField
+                  id="targetWeight"
+                  label="目标体重"
+                  unit="kg"
+                  min={30}
+                  max={300}
+                  step={0.5}
+                  placeholder="60"
+                  value={form.watch('targetWeight')}
+                  fallbackValue={DEFAULT_ONBOARDING_VALUES.targetWeight}
+                  error={form.formState.errors.targetWeight?.message}
+                  onChange={(value) => handleNumericFieldChange('targetWeight', value)}
+                />
+                <NumberStepperField
+                  id="age"
+                  label="年龄"
+                  min={10}
+                  max={120}
+                  step={1}
+                  placeholder="25"
+                  value={form.watch('age')}
+                  fallbackValue={DEFAULT_ONBOARDING_VALUES.age}
+                  error={form.formState.errors.age?.message}
+                  onChange={(value) => handleNumericFieldChange('age', value)}
+                />
               </div>
 
               {/* Activity Level */}
               <div className="space-y-2">
                 <Label htmlFor="activityLevel">活动量</Label>
                 <Select
-                  defaultValue="moderate"
+                  value={form.watch('activityLevel')}
                   onValueChange={(v) => {
                     form.setValue('activityLevel', v as ActivityLevel, { shouldValidate: true });
                     updateCaloriePreview();

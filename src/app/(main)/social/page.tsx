@@ -100,14 +100,9 @@ export default function SocialPage() {
         className="mb-6"
       >
         <CreatePost
-          onSubmit={async (input) => {
-            await createMutation.mutateAsync(input);
-          }}
+          onSubmit={(input) => createMutation.mutateAsync(input)}
           isSubmitting={createMutation.isPending}
         />
-        {createMutation.data?.success === false && (
-          <p className="mt-2 text-sm text-destructive">{createMutation.data.error}</p>
-        )}
       </motion.div>
 
       {posts.length === 0 ? (

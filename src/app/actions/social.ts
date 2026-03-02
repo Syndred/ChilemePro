@@ -12,6 +12,88 @@ export interface ActionResult<T = void> {
   error?: string;
 }
 
+interface DbErrorLike {
+  code?: string | null;
+  message?: string | null;
+  details?: string | null;
+}
+
+type ServerSupabaseClient = Awaited<ReturnType<typeof createClient>>;
+
+function mapDbWriteError(error: DbErrorLike | null | undefined, fallback: string): string {
+  if (!error) {
+    return fallback;
+  }
+
+  switch (error.code) {
+    case '42501':
+      return '当前账号暂无操作权限，请重新登录后重试';
+    case '23503':
+      return '关联数据不存在，请刷新后重试';
+    case '22P02':
+      return '提交的数据格式不正确，请检查后重试';
+    default:
+      return fallback;
+  }
+}
+
+async function ensureUserProfileRow(
+  supabase: ServerSupabaseClient,
+  userId: string,
+): Promise<{ nickname: string; avatar: string }> {
+  const { data: profile, error: profileError } = await supabase
+    .from('users')
+    .select('nickname, avatar')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (profileError) {
+    console.error('Failed to query user profile row', {
+      userId,
+      code: profileError.code,
+      message: profileError.message,
+      details: profileError.details,
+    });
+  }
+
+  if (profile) {
+    return {
+      nickname: (profile.nickname as string) ?? '用户',
+      avatar: (profile.avatar as string) ?? '',
+    };
+  }
+
+  const fallbackNickname = `用户${userId.slice(-4)}`;
+  const { data: created, error: createError } = await supabase
+    .from('users')
+    .upsert(
+      {
+        id: userId,
+        nickname: fallbackNickname,
+        membership_tier: 'free',
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'id' },
+    )
+    .select('nickname, avatar')
+    .single();
+
+  if (createError || !created) {
+    console.error('Failed to create missing user profile row', {
+      userId,
+      code: createError?.code,
+      message: createError?.message,
+      details: createError?.details,
+    });
+    throw new Error('CREATE_USER_ROW_FAILED');
+  }
+
+  return {
+    nickname: (created.nickname as string) ?? fallbackNickname,
+    avatar: (created.avatar as string) ?? '',
+  };
+}
+
 function mapSocialPost(
   row: Record<string, unknown>,
   userInfo: { nickname: string; avatar: string },
@@ -49,7 +131,8 @@ export async function createPost(input: unknown): Promise<ActionResult<SocialPos
   }
 
   const { content, images, mealRecordId } = parsed.data;
-  const validation = validatePost({ content, images, mealRecordId });
+  const normalizedContent = content.trim();
+  const validation = validatePost({ content: normalizedContent, images, mealRecordId });
   if (!validation.valid) {
     return { success: false, error: validation.errors[0] };
   }
@@ -62,23 +145,20 @@ export async function createPost(input: unknown): Promise<ActionResult<SocialPos
       return { success: false, error: '请先登录' };
     }
 
-    const { data: userProfile } = await supabase
-      .from('users')
-      .select('nickname, avatar')
-      .eq('id', userId)
-      .single();
-
-    const nickname = (userProfile?.nickname as string) ?? '用户';
-    const avatar = (userProfile?.avatar as string) ?? '';
+    const { nickname, avatar } = await ensureUserProfileRow(supabase, userId);
+    const moderation = await moderateContent(normalizedContent, images);
+    const allowed = moderation.success ? moderation.data?.allowed !== false : true;
+    const aiResult = moderation.success ? moderation.data?.aiResult : undefined;
+    const nextStatus = allowed ? 'published' : 'rejected';
 
     const { data: postRow, error: postError } = await supabase
       .from('social_posts')
       .insert({
         user_id: userId,
-        content,
+        content: normalizedContent,
         images,
         meal_record_id: mealRecordId ?? null,
-        status: 'reviewing',
+        status: nextStatus,
         likes_count: 0,
         comments_count: 0,
       })
@@ -86,21 +166,17 @@ export async function createPost(input: unknown): Promise<ActionResult<SocialPos
       .single();
 
     if (postError || !postRow) {
-      return { success: false, error: '发布动态失败，请重试' };
+      console.error('createPost insert failed', {
+        userId,
+        code: postError?.code,
+        message: postError?.message,
+        details: postError?.details,
+      });
+      return {
+        success: false,
+        error: mapDbWriteError(postError, '发布动态失败，请稍后重试'),
+      };
     }
-
-    const moderation = await moderateContent(content, images);
-    const allowed = moderation.success ? moderation.data?.allowed !== false : true;
-    const aiResult = moderation.success ? moderation.data?.aiResult : undefined;
-    const nextStatus = allowed ? 'published' : 'rejected';
-
-    await supabase
-      .from('social_posts')
-      .update({
-        status: nextStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', postRow.id);
 
     if (aiResult) {
       await logModerationResult(postRow.id as string, aiResult);
@@ -121,7 +197,8 @@ export async function createPost(input: unknown): Promise<ActionResult<SocialPos
         { nickname, avatar },
       ),
     };
-  } catch {
+  } catch (error) {
+    console.error('createPost unexpected error', error);
     return { success: false, error: '服务器错误，请稍后重试' };
   }
 }
@@ -173,6 +250,8 @@ export async function likePost(postId: string): Promise<ActionResult> {
       return { success: false, error: '请先登录' };
     }
 
+    await ensureUserProfileRow(supabase, userId);
+
     const { error: likeError } = await supabase
       .from('post_likes')
       .insert({ post_id: postId, user_id: userId });
@@ -181,7 +260,14 @@ export async function likePost(postId: string): Promise<ActionResult> {
       if (likeError.code === '23505') {
         return { success: false, error: '已点赞' };
       }
-      return { success: false, error: '点赞失败，请重试' };
+      console.error('likePost failed', {
+        postId,
+        userId,
+        code: likeError.code,
+        message: likeError.message,
+        details: likeError.details,
+      });
+      return { success: false, error: mapDbWriteError(likeError, '点赞失败，请重试') };
     }
 
     const { data: postData } = await supabase
@@ -260,14 +346,7 @@ export async function addComment(postId: string, content: string): Promise<Actio
       return { success: false, error: '请先登录' };
     }
 
-    const { data: userProfile } = await supabase
-      .from('users')
-      .select('nickname, avatar')
-      .eq('id', userId)
-      .single();
-
-    const nickname = (userProfile?.nickname as string) ?? '用户';
-    const avatar = (userProfile?.avatar as string) ?? '';
+    const { nickname, avatar } = await ensureUserProfileRow(supabase, userId);
 
     const { data: commentRow, error: commentError } = await supabase
       .from('post_comments')
@@ -276,7 +355,14 @@ export async function addComment(postId: string, content: string): Promise<Actio
       .single();
 
     if (commentError || !commentRow) {
-      return { success: false, error: '评论失败，请重试' };
+      console.error('addComment failed', {
+        postId,
+        userId,
+        code: commentError?.code,
+        message: commentError?.message,
+        details: commentError?.details,
+      });
+      return { success: false, error: mapDbWriteError(commentError, '评论失败，请重试') };
     }
 
     const { data: postData } = await supabase
@@ -323,6 +409,8 @@ export async function followUser(targetUserId: string): Promise<ActionResult> {
       return { success: false, error: '不能关注自己' };
     }
 
+    await ensureUserProfileRow(supabase, userId);
+
     const { error } = await supabase
       .from('user_follows')
       .insert({ follower_id: userId, following_id: targetUserId });
@@ -331,7 +419,14 @@ export async function followUser(targetUserId: string): Promise<ActionResult> {
       if (error.code === '23505') {
         return { success: false, error: '已关注该用户' };
       }
-      return { success: false, error: '关注失败，请重试' };
+      console.error('followUser failed', {
+        userId,
+        targetUserId,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+      });
+      return { success: false, error: mapDbWriteError(error, '关注失败，请重试') };
     }
 
     return { success: true };
@@ -390,6 +485,8 @@ export async function reportPost(postId: string, reason: string): Promise<Action
       return { success: false, error: '请先登录' };
     }
 
+    await ensureUserProfileRow(supabase, userId);
+
     const { error } = await supabase.from('content_moderation_logs').insert({
       post_id: postId,
       reporter_id: userId,
@@ -398,7 +495,14 @@ export async function reportPost(postId: string, reason: string): Promise<Action
     });
 
     if (error) {
-      return { success: false, error: '举报失败，请重试' };
+      console.error('reportPost failed', {
+        postId,
+        userId,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+      });
+      return { success: false, error: mapDbWriteError(error, '举报失败，请重试') };
     }
 
     return { success: true };

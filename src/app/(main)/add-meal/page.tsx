@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Trash2 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, Minus, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -11,6 +12,7 @@ import { FoodSearch, type FoodSearchItem } from '@/components/meal/FoodSearch';
 import { calculateFoodNutrition, calculateMealTotals } from '@/lib/utils/food-calorie';
 import { createMealRecord } from '@/app/actions/meal';
 import { enqueueSync, cacheMealRecord } from '@/lib/offline/offline-store';
+import { clampNumber, parseOptionalNumber } from '@/lib/validations/number';
 import type { MealType, RecognizedFood } from '@/types';
 
 const MEAL_TYPES: { value: MealType; label: string; emoji: string }[] = [
@@ -31,6 +33,9 @@ interface AddedFood {
   unit: string;
 }
 
+const MIN_SERVING = 1;
+const MAX_SERVING = 5000;
+
 function mapRecognizedFoodToAdded(food: RecognizedFood, index: number): AddedFood {
   return {
     key: `${food.name}-${Date.now()}-${index}`,
@@ -46,10 +51,20 @@ function mapRecognizedFoodToAdded(food: RecognizedFood, index: number): AddedFoo
 
 export default function AddMealPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [mealType, setMealType] = useState<MealType>('lunch');
   const [foods, setFoods] = useState<AddedFood[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const navigateToHomeWithFreshData = async () => {
+    await Promise.allSettled([
+      queryClient.invalidateQueries({ queryKey: ['meals'] }),
+      queryClient.invalidateQueries({ queryKey: ['calorieStats'] }),
+    ]);
+    router.replace('/');
+    router.refresh();
+  };
 
   useEffect(() => {
     try {
@@ -91,11 +106,20 @@ export default function AddMealPage() {
     ]);
   };
 
-  const handleServingChange = (index: number, newServing: number) => {
+  const normalizeServing = (value: number) =>
+    Math.round(clampNumber(value, MIN_SERVING, MAX_SERVING));
+
+  const handleServingChange = (index: number, nextServing: number | undefined) => {
+    if (nextServing === undefined || !Number.isFinite(nextServing)) {
+      return;
+    }
+
+    const newServing = normalizeServing(nextServing);
     setFoods((prev) =>
       prev.map((food, i) => {
         if (i !== index) return food;
-        const ratio = newServing / food.serving;
+        const previousServing = food.serving > 0 ? food.serving : 1;
+        const ratio = newServing / previousServing;
         return {
           ...food,
           serving: newServing,
@@ -106,6 +130,11 @@ export default function AddMealPage() {
         };
       }),
     );
+  };
+
+  const adjustServing = (index: number, delta: number) => {
+    const current = foods[index]?.serving ?? MIN_SERVING;
+    handleServingChange(index, current + delta);
   };
 
   const handleRemoveFood = (index: number) => {
@@ -175,20 +204,20 @@ export default function AddMealPage() {
     try {
       if (!navigator.onLine) {
         await queueOfflineRecord();
-        router.push('/');
+        await navigateToHomeWithFreshData();
         return;
       }
 
       const result = await createMealRecord(payload);
       if (result.success) {
-        router.push('/');
+        await navigateToHomeWithFreshData();
         return;
       }
 
       // If network drops during request, queue it for retry.
       if (!navigator.onLine) {
         await queueOfflineRecord();
-        router.push('/');
+        await navigateToHomeWithFreshData();
         return;
       }
 
@@ -196,7 +225,7 @@ export default function AddMealPage() {
     } catch {
       if (!navigator.onLine) {
         await queueOfflineRecord();
-        router.push('/');
+        await navigateToHomeWithFreshData();
         return;
       }
       setError('网络异常，请重试');
@@ -260,14 +289,39 @@ export default function AddMealPage() {
                     {food.calories}千卡 | 蛋白质{food.protein}g | 脂肪{food.fat}g | 碳水{food.carbs}g
                   </div>
                 </div>
-                <Input
-                  type="number"
-                  min={1}
-                  value={food.serving}
-                  onChange={(e) => handleServingChange(index, Number(e.target.value) || 1)}
-                  className="w-16 text-center"
-                  aria-label={`${food.name}份量`}
-                />
+                <div className="flex items-center rounded-md border">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 rounded-r-none border-r"
+                    onClick={() => adjustServing(index, -1)}
+                    aria-label={`${food.name}份量减少`}
+                  >
+                    <Minus className="h-3.5 w-3.5" />
+                  </Button>
+                  <Input
+                    type="number"
+                    min={MIN_SERVING}
+                    max={MAX_SERVING}
+                    step={1}
+                    value={food.serving}
+                    onChange={(e) => handleServingChange(index, parseOptionalNumber(e.target.value))}
+                    onBlur={(e) => handleServingChange(index, parseOptionalNumber(e.target.value))}
+                    className="h-8 w-16 rounded-none border-0 px-1 text-center focus-visible:ring-0"
+                    aria-label={`${food.name}份量`}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 rounded-l-none border-l"
+                    onClick={() => adjustServing(index, 1)}
+                    aria-label={`${food.name}份量增加`}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
                 <span className="text-xs text-muted-foreground">{food.unit}</span>
                 <Button
                   variant="ghost"

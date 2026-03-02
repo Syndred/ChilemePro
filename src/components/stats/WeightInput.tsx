@@ -4,8 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { saveWeightRecord } from '@/app/actions/weight';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { NumberStepperField } from '@/components/form/NumberStepperField';
 import {
   Dialog,
   DialogContent,
@@ -15,13 +14,15 @@ import {
 } from '@/components/ui/dialog';
 import { Scale, Loader2 } from 'lucide-react';
 
+const DEFAULT_WEIGHT = 65;
+
 /**
  * WeightInput — dialog component for recording daily weight.
  * Requirement 8.5: Support recording daily weight
  */
 export function WeightInput() {
   const [open, setOpen] = useState(false);
-  const [weight, setWeight] = useState('');
+  const [weight, setWeight] = useState<number | undefined>(DEFAULT_WEIGHT);
   const [error, setError] = useState('');
   const queryClient = useQueryClient();
 
@@ -33,7 +34,7 @@ export function WeightInput() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['weightRecords'] });
-      setWeight('');
+      setWeight(DEFAULT_WEIGHT);
       setError('');
       setOpen(false);
     },
@@ -44,13 +45,14 @@ export function WeightInput() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const value = parseFloat(weight);
-    if (isNaN(value) || value < 30 || value > 300) {
+
+    if (weight === undefined || !Number.isFinite(weight) || weight < 30 || weight > 300) {
       setError('请输入 30-300 之间的体重值');
       return;
     }
+
     setError('');
-    mutation.mutate(value);
+    mutation.mutate(weight);
   };
 
   return (
@@ -66,25 +68,24 @@ export function WeightInput() {
           <DialogTitle>记录今日体重</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="weight-input">体重 (kg)</Label>
-            <Input
-              id="weight-input"
-              type="number"
-              step="0.1"
-              min="30"
-              max="300"
-              placeholder="例如: 65.5"
-              value={weight}
-              onChange={(e) => setWeight(e.target.value)}
-              autoFocus
-            />
-            {error && (
-              <p className="text-sm text-destructive" role="alert">
-                {error}
-              </p>
-            )}
-          </div>
+          <NumberStepperField
+            id="weight-input"
+            label="体重"
+            unit="kg"
+            min={30}
+            max={300}
+            step={0.1}
+            placeholder="例如：65.5"
+            value={weight}
+            fallbackValue={DEFAULT_WEIGHT}
+            error={error}
+            onChange={(value) => {
+              setWeight(value);
+              if (error) {
+                setError('');
+              }
+            }}
+          />
           <Button
             type="submit"
             className="w-full"

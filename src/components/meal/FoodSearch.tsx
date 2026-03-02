@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { Search, Plus } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { NumberStepperField } from '@/components/form/NumberStepperField';
 
 /** A food entry from the database or custom input */
 export interface FoodSearchItem {
@@ -41,18 +42,21 @@ interface FoodSearchProps {
   onSelect: (food: FoodSearchItem) => void;
 }
 
+const CUSTOM_FOOD_DEFAULTS: FoodSearchItem = {
+  name: '',
+  caloriesPerServing: 100,
+  proteinPerServing: 0,
+  fatPerServing: 0,
+  carbsPerServing: 0,
+  defaultServing: 100,
+  unit: 'g',
+};
+
 export function FoodSearch({ onSelect }: FoodSearchProps) {
   const [query, setQuery] = useState('');
   const [showCustom, setShowCustom] = useState(false);
-  const [customFood, setCustomFood] = useState<FoodSearchItem>({
-    name: '',
-    caloriesPerServing: 0,
-    proteinPerServing: 0,
-    fatPerServing: 0,
-    carbsPerServing: 0,
-    defaultServing: 100,
-    unit: 'g',
-  });
+  const [customFood, setCustomFood] = useState<FoodSearchItem>(CUSTOM_FOOD_DEFAULTS);
+  const [customError, setCustomError] = useState<string | null>(null);
 
   const filteredFoods = useMemo(() => {
     if (!query.trim()) return COMMON_FOODS;
@@ -63,18 +67,46 @@ export function FoodSearch({ onSelect }: FoodSearchProps) {
   }, [query]);
 
   const handleCustomSubmit = () => {
-    if (!customFood.name.trim()) return;
-    onSelect(customFood);
-    setCustomFood({
-      name: '',
-      caloriesPerServing: 0,
-      proteinPerServing: 0,
-      fatPerServing: 0,
-      carbsPerServing: 0,
-      defaultServing: 100,
-      unit: 'g',
+    if (!customFood.name.trim()) {
+      setCustomError('请输入食物名称');
+      return;
+    }
+
+    if (customFood.caloriesPerServing < 0) {
+      setCustomError('热量不能为负数');
+      return;
+    }
+
+    if (customFood.defaultServing <= 0) {
+      setCustomError('份量必须大于 0');
+      return;
+    }
+
+    onSelect({
+      ...customFood,
+      name: customFood.name.trim(),
+      unit: customFood.unit.trim() || 'g',
     });
+
+    setCustomFood(CUSTOM_FOOD_DEFAULTS);
+    setCustomError(null);
     setShowCustom(false);
+  };
+
+  const setCustomNumericField = (
+    key: keyof Pick<
+      FoodSearchItem,
+      'caloriesPerServing' | 'defaultServing' | 'proteinPerServing' | 'fatPerServing' | 'carbsPerServing'
+    >,
+    value: number | undefined,
+  ) => {
+    setCustomFood((prev) => ({
+      ...prev,
+      [key]: value ?? 0,
+    }));
+    if (customError) {
+      setCustomError(null);
+    }
   };
 
   return (
@@ -132,67 +164,87 @@ export function FoodSearch({ onSelect }: FoodSearchProps) {
           <Input
             placeholder="食物名称"
             value={customFood.name}
-            onChange={(e) => setCustomFood({ ...customFood, name: e.target.value })}
+            onChange={(e) => {
+              setCustomFood({ ...customFood, name: e.target.value });
+              if (customError) {
+                setCustomError(null);
+              }
+            }}
             aria-label="自定义食物名称"
           />
           <div className="grid grid-cols-2 gap-2">
-            <Input
-              type="number"
-              placeholder="热量(千卡)"
+            <NumberStepperField
+              id="custom-food-calories"
+              label="热量"
+              unit="千卡"
               min={0}
-              value={customFood.caloriesPerServing || ''}
-              onChange={(e) =>
-                setCustomFood({ ...customFood, caloriesPerServing: Number(e.target.value) })
-              }
-              aria-label="热量"
+              max={5000}
+              step={1}
+              value={customFood.caloriesPerServing}
+              fallbackValue={CUSTOM_FOOD_DEFAULTS.caloriesPerServing}
+              onChange={(value) => setCustomNumericField('caloriesPerServing', value)}
             />
-            <Input
-              type="number"
-              placeholder="份量"
-              min={0}
-              value={customFood.defaultServing || ''}
-              onChange={(e) =>
-                setCustomFood({ ...customFood, defaultServing: Number(e.target.value) })
-              }
-              aria-label="份量"
+            <NumberStepperField
+              id="custom-food-serving"
+              label="份量"
+              unit={customFood.unit || 'g'}
+              min={1}
+              max={5000}
+              step={1}
+              value={customFood.defaultServing}
+              fallbackValue={CUSTOM_FOOD_DEFAULTS.defaultServing}
+              onChange={(value) => setCustomNumericField('defaultServing', value)}
             />
-            <Input
-              type="number"
-              placeholder="蛋白质(g)"
+            <NumberStepperField
+              id="custom-food-protein"
+              label="蛋白质"
+              unit="g"
               min={0}
-              value={customFood.proteinPerServing || ''}
-              onChange={(e) =>
-                setCustomFood({ ...customFood, proteinPerServing: Number(e.target.value) })
-              }
-              aria-label="蛋白质"
+              max={500}
+              step={0.1}
+              value={customFood.proteinPerServing}
+              fallbackValue={CUSTOM_FOOD_DEFAULTS.proteinPerServing}
+              onChange={(value) => setCustomNumericField('proteinPerServing', value)}
             />
-            <Input
-              type="number"
-              placeholder="脂肪(g)"
+            <NumberStepperField
+              id="custom-food-fat"
+              label="脂肪"
+              unit="g"
               min={0}
-              value={customFood.fatPerServing || ''}
-              onChange={(e) =>
-                setCustomFood({ ...customFood, fatPerServing: Number(e.target.value) })
-              }
-              aria-label="脂肪"
+              max={500}
+              step={0.1}
+              value={customFood.fatPerServing}
+              fallbackValue={CUSTOM_FOOD_DEFAULTS.fatPerServing}
+              onChange={(value) => setCustomNumericField('fatPerServing', value)}
             />
-            <Input
-              type="number"
-              placeholder="碳水(g)"
+            <NumberStepperField
+              id="custom-food-carbs"
+              label="碳水"
+              unit="g"
               min={0}
-              value={customFood.carbsPerServing || ''}
-              onChange={(e) =>
-                setCustomFood({ ...customFood, carbsPerServing: Number(e.target.value) })
-              }
-              aria-label="碳水化合物"
+              max={500}
+              step={0.1}
+              value={customFood.carbsPerServing}
+              fallbackValue={CUSTOM_FOOD_DEFAULTS.carbsPerServing}
+              onChange={(value) => setCustomNumericField('carbsPerServing', value)}
             />
             <Input
               placeholder="单位(如 g, ml)"
               value={customFood.unit}
-              onChange={(e) => setCustomFood({ ...customFood, unit: e.target.value })}
+              onChange={(e) => {
+                setCustomFood({ ...customFood, unit: e.target.value });
+                if (customError) {
+                  setCustomError(null);
+                }
+              }}
               aria-label="单位"
             />
           </div>
+          {customError && (
+            <p className="text-sm text-destructive" role="alert">
+              {customError}
+            </p>
+          )}
           <Button
             type="button"
             size="sm"

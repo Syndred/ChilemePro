@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
+import { NumberStepperField } from '@/components/form/NumberStepperField';
 import {
   Select,
   SelectContent,
@@ -21,6 +22,7 @@ import {
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { getProfileSummary, updateProfile } from '@/app/actions/profile';
 import { calculateDailyCalories } from '@/lib/utils/calorie';
+import { numericRangeField } from '@/lib/validations/number';
 import type { Gender, ActivityLevel } from '@/types';
 
 const editProfileSchema = z.object({
@@ -28,23 +30,36 @@ const editProfileSchema = z.object({
     .string()
     .min(1, '昵称不能为空')
     .max(20, '昵称不能超过20个字符'),
-  height: z
-    .number()
-    .min(100, '身高不能低于100厘米')
-    .max(250, '身高不能超过250厘米'),
-  weight: z
-    .number()
-    .min(30, '体重不能低于30公斤')
-    .max(300, '体重不能超过300公斤'),
-  targetWeight: z
-    .number()
-    .min(30, '目标体重不能低于30公斤')
-    .max(300, '目标体重不能超过300公斤'),
-  age: z
-    .number()
-    .int('年龄必须是整数')
-    .min(10, '年龄不能低于10岁')
-    .max(120, '年龄不能超过120岁'),
+  height: numericRangeField({
+    label: '身高',
+    min: 100,
+    max: 250,
+    minMessage: '身高不能低于100厘米',
+    maxMessage: '身高不能超过250厘米',
+  }),
+  weight: numericRangeField({
+    label: '体重',
+    min: 30,
+    max: 300,
+    minMessage: '体重不能低于30公斤',
+    maxMessage: '体重不能超过300公斤',
+  }),
+  targetWeight: numericRangeField({
+    label: '目标体重',
+    min: 30,
+    max: 300,
+    minMessage: '目标体重不能低于30公斤',
+    maxMessage: '目标体重不能超过300公斤',
+  }),
+  age: numericRangeField({
+    label: '年龄',
+    min: 10,
+    max: 120,
+    integer: true,
+    minMessage: '年龄不能低于10岁',
+    maxMessage: '年龄不能超过120岁',
+    integerMessage: '年龄必须是整数',
+  }),
   gender: z.enum(['male', 'female', 'other']),
   activityLevel: z.enum(['sedentary', 'light', 'moderate', 'active', 'very_active']),
 });
@@ -65,6 +80,13 @@ const ACTIVITY_OPTIONS: { value: ActivityLevel; label: string; desc: string }[] 
   { value: 'very_active', label: '极高活动', desc: '高强度训练或体力劳动' },
 ];
 
+const DEFAULT_PROFILE_VALUES = {
+  height: 170,
+  weight: 65,
+  targetWeight: 60,
+  age: 25,
+} as const;
+
 /**
  * Edit profile page.
  * Requirement 16.1: Edit personal info (nickname, avatar, basic info)
@@ -81,10 +103,10 @@ export default function EditProfilePage() {
     resolver: zodResolver(editProfileSchema),
     defaultValues: {
       nickname: '',
-      height: undefined,
-      weight: undefined,
-      targetWeight: undefined,
-      age: undefined,
+      height: DEFAULT_PROFILE_VALUES.height,
+      weight: DEFAULT_PROFILE_VALUES.weight,
+      targetWeight: DEFAULT_PROFILE_VALUES.targetWeight,
+      age: DEFAULT_PROFILE_VALUES.age,
       gender: 'male',
       activityLevel: 'moderate',
     },
@@ -96,18 +118,35 @@ export default function EditProfilePage() {
       const result = await getProfileSummary();
       if (result.success && result.data) {
         const p = result.data;
-        form.reset({
-          nickname: p.nickname,
-          height: p.height || undefined,
-          weight: p.weight || undefined,
-          targetWeight: p.targetWeight || undefined,
-          age: p.age || undefined,
+        const normalized = {
+          height: p.height > 0 ? p.height : DEFAULT_PROFILE_VALUES.height,
+          weight: p.weight > 0 ? p.weight : DEFAULT_PROFILE_VALUES.weight,
+          targetWeight:
+            p.targetWeight > 0 ? p.targetWeight : DEFAULT_PROFILE_VALUES.targetWeight,
+          age: p.age > 0 ? p.age : DEFAULT_PROFILE_VALUES.age,
           gender: p.gender,
           activityLevel: p.activityLevel,
+        };
+
+        form.reset({
+          nickname: p.nickname,
+          height: normalized.height,
+          weight: normalized.weight,
+          targetWeight: normalized.targetWeight,
+          age: normalized.age,
+          gender: normalized.gender,
+          activityLevel: normalized.activityLevel,
         });
-        if (p.dailyCalorieTarget) {
-          setCaloriePreview(p.dailyCalorieTarget);
-        }
+
+        setCaloriePreview(
+          calculateDailyCalories({
+            gender: normalized.gender,
+            weight: normalized.weight,
+            height: normalized.height,
+            age: normalized.age,
+            activityLevel: normalized.activityLevel,
+          }),
+        );
       }
       setLoading(false);
     }
@@ -128,6 +167,21 @@ export default function EditProfilePage() {
     }
     setCaloriePreview(null);
   }, [form]);
+
+  const handleNumericFieldChange = useCallback(
+    (
+      field: 'height' | 'weight' | 'targetWeight' | 'age',
+      value: number | undefined,
+    ) => {
+      form.setValue(field, value as never, {
+        shouldDirty: true,
+        shouldTouch: true,
+        shouldValidate: true,
+      });
+      updateCaloriePreview();
+    },
+    [form, updateCaloriePreview],
+  );
 
   const onSubmit = useCallback(
     (data: EditProfileFormValues) => {
@@ -215,86 +269,61 @@ export default function EditProfilePage() {
 
               {/* Height & Weight */}
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-height">身高 (cm)</Label>
-                  <Input
-                    id="edit-height"
-                    type="number"
-                    inputMode="decimal"
-                    placeholder="170"
-                    aria-describedby="edit-height-error"
-                    {...form.register('height', { valueAsNumber: true })}
-                    onChange={(e) => {
-                      form.register('height', { valueAsNumber: true }).onChange(e);
-                      updateCaloriePreview();
-                    }}
-                  />
-                  {form.formState.errors.height && (
-                    <p id="edit-height-error" className="text-sm text-destructive" role="alert">
-                      {form.formState.errors.height.message}
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-weight">体重 (kg)</Label>
-                  <Input
-                    id="edit-weight"
-                    type="number"
-                    inputMode="decimal"
-                    placeholder="65"
-                    aria-describedby="edit-weight-error"
-                    {...form.register('weight', { valueAsNumber: true })}
-                    onChange={(e) => {
-                      form.register('weight', { valueAsNumber: true }).onChange(e);
-                      updateCaloriePreview();
-                    }}
-                  />
-                  {form.formState.errors.weight && (
-                    <p id="edit-weight-error" className="text-sm text-destructive" role="alert">
-                      {form.formState.errors.weight.message}
-                    </p>
-                  )}
-                </div>
+                <NumberStepperField
+                  id="edit-height"
+                  label="身高"
+                  unit="cm"
+                  min={100}
+                  max={250}
+                  step={1}
+                  placeholder="170"
+                  value={form.watch('height')}
+                  fallbackValue={DEFAULT_PROFILE_VALUES.height}
+                  error={form.formState.errors.height?.message}
+                  onChange={(value) => handleNumericFieldChange('height', value)}
+                />
+                <NumberStepperField
+                  id="edit-weight"
+                  label="体重"
+                  unit="kg"
+                  min={30}
+                  max={300}
+                  step={0.5}
+                  placeholder="65"
+                  value={form.watch('weight')}
+                  fallbackValue={DEFAULT_PROFILE_VALUES.weight}
+                  error={form.formState.errors.weight?.message}
+                  onChange={(value) => handleNumericFieldChange('weight', value)}
+                />
               </div>
 
               {/* Target Weight & Age */}
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-targetWeight">目标体重 (kg)</Label>
-                  <Input
-                    id="edit-targetWeight"
-                    type="number"
-                    inputMode="decimal"
-                    placeholder="60"
-                    aria-describedby="edit-targetWeight-error"
-                    {...form.register('targetWeight', { valueAsNumber: true })}
-                  />
-                  {form.formState.errors.targetWeight && (
-                    <p id="edit-targetWeight-error" className="text-sm text-destructive" role="alert">
-                      {form.formState.errors.targetWeight.message}
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-age">年龄</Label>
-                  <Input
-                    id="edit-age"
-                    type="number"
-                    inputMode="numeric"
-                    placeholder="25"
-                    aria-describedby="edit-age-error"
-                    {...form.register('age', { valueAsNumber: true })}
-                    onChange={(e) => {
-                      form.register('age', { valueAsNumber: true }).onChange(e);
-                      updateCaloriePreview();
-                    }}
-                  />
-                  {form.formState.errors.age && (
-                    <p id="edit-age-error" className="text-sm text-destructive" role="alert">
-                      {form.formState.errors.age.message}
-                    </p>
-                  )}
-                </div>
+                <NumberStepperField
+                  id="edit-targetWeight"
+                  label="目标体重"
+                  unit="kg"
+                  min={30}
+                  max={300}
+                  step={0.5}
+                  placeholder="60"
+                  value={form.watch('targetWeight')}
+                  fallbackValue={DEFAULT_PROFILE_VALUES.targetWeight}
+                  error={form.formState.errors.targetWeight?.message}
+                  onChange={(value) => handleNumericFieldChange('targetWeight', value)}
+                />
+                <NumberStepperField
+                  id="edit-age"
+                  label="年龄"
+                  min={10}
+                  max={120}
+                  step={1}
+                  placeholder="25"
+                  value={form.watch('age')}
+                  fallbackValue={DEFAULT_PROFILE_VALUES.age}
+                  error={form.formState.errors.age?.message}
+                  onChange={(value) => handleNumericFieldChange('age', value)}
+                />
               </div>
 
               {/* Activity Level */}

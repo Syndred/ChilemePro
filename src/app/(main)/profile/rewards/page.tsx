@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { NumberStepperField } from '@/components/form/NumberStepperField';
 import {
   getRewardBalance,
   getRewardHistory,
@@ -161,11 +162,12 @@ function WithdrawalForm({
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState<number | undefined>(MIN_WITHDRAWAL_AMOUNT);
   const [method, setMethod] = useState<WithdrawalMethod>('wechat');
   const [account, setAccount] = useState('');
 
-  const parsedAmount = parseFloat(amount) || 0;
+  const parsedAmount = amount ?? 0;
+  const amountLimit = Math.max(balance, MIN_WITHDRAWAL_AMOUNT);
   const feeInfo = calculateWithdrawalFee(parsedAmount, method);
   const estimatedDays = getEstimatedProcessingDays(method);
 
@@ -196,23 +198,18 @@ function WithdrawalForm({
         <CardContent className="space-y-4">
           {/* Amount */}
           <div className="space-y-2">
-            <Label htmlFor="withdrawal-amount">提现金额</Label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                ¥
-              </span>
-              <Input
-                id="withdrawal-amount"
-                type="number"
-                placeholder={`最低 ${MIN_WITHDRAWAL_AMOUNT} 元`}
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="pl-8"
-                min={MIN_WITHDRAWAL_AMOUNT}
-                max={balance}
-                step="0.01"
-              />
-            </div>
+            <NumberStepperField
+              id="withdrawal-amount"
+              label="提现金额"
+              unit="元"
+              min={MIN_WITHDRAWAL_AMOUNT}
+              max={amountLimit}
+              step={0.01}
+              placeholder={`最低 ${MIN_WITHDRAWAL_AMOUNT} 元`}
+              value={amount}
+              fallbackValue={MIN_WITHDRAWAL_AMOUNT}
+              onChange={(value) => setAmount(value)}
+            />
             <p className="text-xs text-muted-foreground">
               可用余额: {formatWithdrawalAmount(balance)}
             </p>
