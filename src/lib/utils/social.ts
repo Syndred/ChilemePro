@@ -1,15 +1,11 @@
 /**
- * Pure social business logic — no side effects, fully testable.
- *
- * Requirement 14.4: Max 9 photos per post
- * Requirement 14.5: Max 500 characters per post
- * Requirement 14.6: Users can delete their own posts
+ * Pure social business logic - no side effects, fully testable.
  */
 
 // --- Constants ---
 
 /** Maximum number of photos per post */
-export const MAX_POST_IMAGES = 9;
+export const MAX_POST_IMAGES = 3;
 
 /** Maximum content length in characters */
 export const MAX_POST_CONTENT_LENGTH = 500;
@@ -31,7 +27,6 @@ export interface PostContentInput {
 
 /**
  * Validate post content length.
- * Requirement 14.5: Max 500 characters.
  */
 export function validatePostContent(content: string): {
   valid: boolean;
@@ -40,7 +35,7 @@ export function validatePostContent(content: string): {
   if (content.length > MAX_POST_CONTENT_LENGTH) {
     return {
       valid: false,
-      error: `动态内容最多${MAX_POST_CONTENT_LENGTH}字，当前${content.length}字`,
+      error: `动态内容最多 ${MAX_POST_CONTENT_LENGTH} 字，当前 ${content.length} 字`,
     };
   }
   return { valid: true };
@@ -48,7 +43,6 @@ export function validatePostContent(content: string): {
 
 /**
  * Validate post image count.
- * Requirement 14.4: Max 9 photos.
  */
 export function validatePostImages(images: string[]): {
   valid: boolean;
@@ -57,7 +51,7 @@ export function validatePostImages(images: string[]): {
   if (images.length > MAX_POST_IMAGES) {
     return {
       valid: false,
-      error: `最多上传${MAX_POST_IMAGES}张照片，当前${images.length}张`,
+      error: `最多上传 ${MAX_POST_IMAGES} 张照片，当前 ${images.length} 张`,
     };
   }
   return { valid: true };
@@ -65,7 +59,6 @@ export function validatePostImages(images: string[]): {
 
 /**
  * Validate a complete post before submission.
- * Requirement 14.4, 14.5: Photo and text limits.
  */
 export function validatePost(input: PostContentInput): PostValidationResult {
   const errors: string[] = [];
@@ -80,9 +73,8 @@ export function validatePost(input: PostContentInput): PostValidationResult {
     errors.push(imagesResult.error);
   }
 
-  // Must have content or images
   if (input.content.trim().length === 0 && input.images.length === 0) {
-    errors.push('请输入文字或上传照片');
+    errors.push('请输入文字或上传图片');
   }
 
   return {
@@ -93,7 +85,6 @@ export function validatePost(input: PostContentInput): PostValidationResult {
 
 /**
  * Check if a user can delete a post.
- * Requirement 14.6: Users can delete their own posts.
  */
 export function canDeletePost(postUserId: string, currentUserId: string): boolean {
   return postUserId === currentUserId;
@@ -129,7 +120,7 @@ export interface NotificationInput {
   actorNickname: string;
   /** Only for 'comment' notifications */
   commentContent?: string;
-  /** Only for 'like' / 'comment' — a snippet of the post content */
+  /** Only for 'like' / 'comment' - a snippet of the post content */
   postContentPreview?: string;
 }
 
@@ -142,12 +133,8 @@ export interface FeedPost {
   createdAt: Date;
 }
 
-// --- Pure Functions: Feed Filtering ---
-
 /**
  * Filter posts to only include published posts from followed users.
- * Requirement 15.1: Show followed users' posts
- * Requirement 15.6: Sort by time descending
  */
 export function filterFeedPosts(
   posts: FeedPost[],
@@ -163,22 +150,21 @@ export function filterFeedPosts(
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
-// --- Pure Functions: Notification Messages ---
+// --- Notification Message Helpers ---
 
 /** Max length for content previews in notifications */
 const NOTIFICATION_PREVIEW_MAX = 20;
 
 /**
- * Truncate text to a max length, appending "…" if truncated.
+ * Truncate text to a max length, appending "..." if truncated.
  */
 export function truncateText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
-  return text.slice(0, maxLength) + '…';
+  return `${text.slice(0, maxLength)}...`;
 }
 
 /**
  * Generate a human-readable notification message.
- * Requirement 15.4: Send notifications for likes and comments
  */
 export function generateNotificationMessage(input: NotificationInput): string {
   const { type, actorNickname } = input;
@@ -188,7 +174,7 @@ export function generateNotificationMessage(input: NotificationInput): string {
       const preview = input.postContentPreview
         ? `"${truncateText(input.postContentPreview, NOTIFICATION_PREVIEW_MAX)}"`
         : '你的动态';
-      return `${actorNickname} 赞了${preview}`;
+      return `${actorNickname} 点赞了${preview}`;
     }
     case 'comment': {
       const comment = input.commentContent
@@ -205,8 +191,6 @@ export function generateNotificationMessage(input: NotificationInput): string {
 
 /**
  * Check if a user can follow another user.
- * Requirement 15.5: Support follow/unfollow
- * Users cannot follow themselves.
  */
 export function canFollow(currentUserId: string, targetUserId: string): boolean {
   return currentUserId !== targetUserId;
@@ -214,7 +198,6 @@ export function canFollow(currentUserId: string, targetUserId: string): boolean 
 
 /**
  * Validate report reason.
- * Requirement 15.7: Support reporting
  */
 export function validateReportReason(reason: string): {
   valid: boolean;
@@ -225,7 +208,7 @@ export function validateReportReason(reason: string): {
     return { valid: false, error: '举报原因不能为空' };
   }
   if (trimmed.length > 500) {
-    return { valid: false, error: '举报原因最多500字' };
+    return { valid: false, error: '举报原因最多 500 字' };
   }
   return { valid: true };
 }

@@ -392,6 +392,57 @@ export async function addComment(postId: string, content: string): Promise<Actio
   }
 }
 
+export async function deleteComment(
+  commentId: string,
+): Promise<ActionResult<{ postId: string }>> {
+  if (!commentId) {
+    return { success: false, error: '评论 ID 不能为空' };
+  }
+
+  try {
+    const supabase = await createClient();
+    const userId = await getCurrentUserId();
+
+    if (!userId) {
+      return { success: false, error: '请先登录' };
+    }
+
+    const { data: commentRow, error: commentQueryError } = await supabase
+      .from('post_comments')
+      .select('id, post_id, user_id')
+      .eq('id', commentId)
+      .single();
+
+    if (commentQueryError || !commentRow) {
+      return { success: false, error: '评论不存在或已删除' };
+    }
+
+    if ((commentRow.user_id as string) !== userId) {
+      return { success: false, error: '无权限删除该评论' };
+    }
+
+    const postId = commentRow.post_id as string;
+    const { error: deleteError } = await supabase.from('post_comments').delete().eq('id', commentId);
+
+    if (deleteError) {
+      return { success: false, error: mapDbWriteError(deleteError, '删除评论失败，请重试') };
+    }
+
+    const { data: postData } = await supabase
+      .from('social_posts')
+      .select('comments_count')
+      .eq('id', postId)
+      .single();
+
+    const nextCount = Math.max(0, Number(postData?.comments_count ?? 0) - 1);
+    await supabase.from('social_posts').update({ comments_count: nextCount }).eq('id', postId);
+
+    return { success: true, data: { postId } };
+  } catch {
+    return { success: false, error: '服务器错误，请稍后重试' };
+  }
+}
+
 export async function followUser(targetUserId: string): Promise<ActionResult> {
   if (!targetUserId) {
     return { success: false, error: '用户 ID 不能为空' };

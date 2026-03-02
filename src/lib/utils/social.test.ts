@@ -1,119 +1,112 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
+  MAX_POST_CONTENT_LENGTH,
+  MAX_POST_IMAGES,
+  canDeletePost,
+  canFollow,
+  filterFeedPosts,
+  formatPostTime,
+  generateNotificationMessage,
+  truncateText,
+  validatePost,
   validatePostContent,
   validatePostImages,
-  validatePost,
-  canDeletePost,
-  formatPostTime,
-  MAX_POST_IMAGES,
-  MAX_POST_CONTENT_LENGTH,
+  validateReportReason,
+  type FeedPost,
 } from './social';
-
-// --- validatePostContent ---
 
 describe('validatePostContent', () => {
   it('accepts empty content', () => {
     expect(validatePostContent('').valid).toBe(true);
   });
 
-  it('accepts content at exactly 500 characters', () => {
-    const content = 'a'.repeat(500);
+  it('accepts content at exactly max length', () => {
+    const content = 'a'.repeat(MAX_POST_CONTENT_LENGTH);
     expect(validatePostContent(content).valid).toBe(true);
   });
 
-  it('rejects content over 500 characters', () => {
-    const content = 'a'.repeat(501);
+  it('rejects content over max length', () => {
+    const content = 'a'.repeat(MAX_POST_CONTENT_LENGTH + 1);
     const result = validatePostContent(content);
     expect(result.valid).toBe(false);
-    expect(result.error).toContain('500');
+    expect(result.error).toContain(String(MAX_POST_CONTENT_LENGTH));
   });
 
-  it('accepts normal Chinese text', () => {
-    const content = '今天吃了一碗面条，感觉很满足！';
-    expect(validatePostContent(content).valid).toBe(true);
+  it('accepts normal Chinese content', () => {
+    expect(validatePostContent('今天吃了鸡胸肉配西兰花').valid).toBe(true);
   });
 });
-
-// --- validatePostImages ---
 
 describe('validatePostImages', () => {
   it('accepts empty images array', () => {
     expect(validatePostImages([]).valid).toBe(true);
   });
 
-  it('accepts exactly 9 images', () => {
-    const images = Array.from({ length: 9 }, (_, i) => `https://example.com/img${i}.jpg`);
+  it('accepts exactly max images', () => {
+    const images = Array.from({ length: MAX_POST_IMAGES }, (_, i) => `https://img/${i}.jpg`);
     expect(validatePostImages(images).valid).toBe(true);
   });
 
-  it('rejects more than 9 images', () => {
-    const images = Array.from({ length: 10 }, (_, i) => `https://example.com/img${i}.jpg`);
+  it('rejects over max images', () => {
+    const images = Array.from({ length: MAX_POST_IMAGES + 1 }, (_, i) => `https://img/${i}.jpg`);
     const result = validatePostImages(images);
     expect(result.valid).toBe(false);
-    expect(result.error).toContain('9');
+    expect(result.error).toContain(String(MAX_POST_IMAGES));
   });
 
   it('accepts single image', () => {
-    expect(validatePostImages(['https://example.com/img.jpg']).valid).toBe(true);
+    expect(validatePostImages(['https://img/1.jpg']).valid).toBe(true);
   });
 });
-
-// --- validatePost ---
 
 describe('validatePost', () => {
   it('accepts valid post with content and images', () => {
     const result = validatePost({
-      content: '好吃！',
-      images: ['https://example.com/img.jpg'],
+      content: '好吃',
+      images: ['https://img/1.jpg'],
     });
     expect(result.valid).toBe(true);
     expect(result.errors).toHaveLength(0);
   });
 
   it('accepts post with only content', () => {
-    const result = validatePost({ content: '今天的午餐', images: [] });
-    expect(result.valid).toBe(true);
+    expect(validatePost({ content: '今天的午餐', images: [] }).valid).toBe(true);
   });
 
   it('accepts post with only images', () => {
-    const result = validatePost({
-      content: '',
-      images: ['https://example.com/img.jpg'],
-    });
-    expect(result.valid).toBe(true);
+    expect(validatePost({ content: '', images: ['https://img/1.jpg'] }).valid).toBe(true);
   });
 
   it('rejects post with no content and no images', () => {
     const result = validatePost({ content: '', images: [] });
     expect(result.valid).toBe(false);
-    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors).toContain('请输入文字或上传图片');
   });
 
-  it('rejects post with whitespace-only content and no images', () => {
+  it('rejects whitespace-only content and no images', () => {
     const result = validatePost({ content: '   ', images: [] });
     expect(result.valid).toBe(false);
   });
 
   it('collects multiple errors', () => {
     const result = validatePost({
-      content: 'a'.repeat(501),
-      images: Array.from({ length: 10 }, (_, i) => `https://example.com/${i}.jpg`),
+      content: 'a'.repeat(MAX_POST_CONTENT_LENGTH + 1),
+      images: Array.from({ length: MAX_POST_IMAGES + 1 }, (_, i) => `https://img/${i}.jpg`),
     });
     expect(result.valid).toBe(false);
     expect(result.errors.length).toBe(2);
   });
 
   it('accepts post with mealRecordId', () => {
-    const result = validatePost({
-      content: '关联饮食记录',
-      images: [],
-      mealRecordId: 'some-uuid',
-    });
-    expect(result.valid).toBe(true);
+    expect(
+      validatePost({
+        content: '关联饮食记录',
+        images: [],
+        mealRecordId: 'record-uuid',
+      }).valid,
+    ).toBe(true);
   });
 });
-
-// --- canDeletePost ---
 
 describe('canDeletePost', () => {
   it('returns true when user owns the post', () => {
@@ -124,8 +117,6 @@ describe('canDeletePost', () => {
     expect(canDeletePost('user-1', 'user-2')).toBe(false);
   });
 });
-
-// --- formatPostTime ---
 
 describe('formatPostTime', () => {
   const now = new Date('2025-06-15T12:00:00');
@@ -158,28 +149,15 @@ describe('formatPostTime', () => {
   });
 });
 
-// --- Constants ---
-
 describe('constants', () => {
-  it('MAX_POST_IMAGES is 9', () => {
-    expect(MAX_POST_IMAGES).toBe(9);
+  it('MAX_POST_IMAGES is 3', () => {
+    expect(MAX_POST_IMAGES).toBe(3);
   });
 
   it('MAX_POST_CONTENT_LENGTH is 500', () => {
     expect(MAX_POST_CONTENT_LENGTH).toBe(500);
   });
 });
-
-import {
-  filterFeedPosts,
-  truncateText,
-  generateNotificationMessage,
-  canFollow,
-  validateReportReason,
-  type FeedPost,
-} from './social';
-
-// --- filterFeedPosts ---
 
 describe('filterFeedPosts', () => {
   const makePost = (
@@ -223,20 +201,14 @@ describe('filterFeedPosts', () => {
   });
 
   it('returns empty array when no posts match', () => {
-    const result = filterFeedPosts([], followedIds, currentUserId);
-    expect(result).toEqual([]);
+    expect(filterFeedPosts([], followedIds, currentUserId)).toEqual([]);
   });
 
-  it('includes own posts even if not in followed set', () => {
-    const posts = [
-      makePost('p1', 'me', 'published', new Date('2025-06-15T10:00:00')),
-    ];
-    const result = filterFeedPosts(posts, new Set(), currentUserId);
-    expect(result).toHaveLength(1);
+  it('includes own posts even if not followed', () => {
+    const posts = [makePost('p1', 'me', 'published', new Date('2025-06-15T10:00:00'))];
+    expect(filterFeedPosts(posts, new Set(), currentUserId)).toHaveLength(1);
   });
 });
-
-// --- truncateText ---
 
 describe('truncateText', () => {
   it('returns text unchanged if within limit', () => {
@@ -247,8 +219,8 @@ describe('truncateText', () => {
     expect(truncateText('hello', 5)).toBe('hello');
   });
 
-  it('truncates and adds ellipsis if over limit', () => {
-    expect(truncateText('hello world', 5)).toBe('hello…');
+  it('truncates and appends ... if over limit', () => {
+    expect(truncateText('hello world', 5)).toBe('hello...');
   });
 
   it('handles empty string', () => {
@@ -256,37 +228,35 @@ describe('truncateText', () => {
   });
 });
 
-// --- generateNotificationMessage ---
-
 describe('generateNotificationMessage', () => {
-  it('generates like notification with post preview', () => {
+  it('generates like notification with preview', () => {
     const msg = generateNotificationMessage({
       type: 'like',
       actorNickname: '小明',
-      postContentPreview: '今天吃了一碗面条',
+      postContentPreview: '今天吃了一碗面',
     });
     expect(msg).toContain('小明');
-    expect(msg).toContain('赞了');
-    expect(msg).toContain('今天吃了一碗面条');
+    expect(msg).toContain('点赞了');
+    expect(msg).toContain('今天吃了一碗面');
   });
 
-  it('generates like notification without post preview', () => {
+  it('generates like notification without preview', () => {
     const msg = generateNotificationMessage({
       type: 'like',
       actorNickname: '小明',
     });
-    expect(msg).toBe('小明 赞了你的动态');
+    expect(msg).toBe('小明 点赞了你的动态');
   });
 
   it('generates comment notification with content', () => {
     const msg = generateNotificationMessage({
       type: 'comment',
       actorNickname: '小红',
-      commentContent: '看起来好好吃！',
+      commentContent: '看起来很好吃',
     });
     expect(msg).toContain('小红');
     expect(msg).toContain('评论了你的动态');
-    expect(msg).toContain('看起来好好吃！');
+    expect(msg).toContain('看起来很好吃');
   });
 
   it('generates comment notification without content', () => {
@@ -305,17 +275,15 @@ describe('generateNotificationMessage', () => {
     expect(msg).toBe('小刚 关注了你');
   });
 
-  it('truncates long post preview in like notification', () => {
+  it('truncates long content preview', () => {
     const msg = generateNotificationMessage({
       type: 'like',
       actorNickname: '小明',
       postContentPreview: '这是一段非常非常非常非常非常非常非常非常长的动态内容',
     });
-    expect(msg).toContain('…');
+    expect(msg).toContain('...');
   });
 });
-
-// --- canFollow ---
 
 describe('canFollow', () => {
   it('returns true for different users', () => {
@@ -326,8 +294,6 @@ describe('canFollow', () => {
     expect(canFollow('user-1', 'user-1')).toBe(false);
   });
 });
-
-// --- validateReportReason ---
 
 describe('validateReportReason', () => {
   it('accepts valid reason', () => {
@@ -341,8 +307,7 @@ describe('validateReportReason', () => {
   });
 
   it('rejects whitespace-only reason', () => {
-    const result = validateReportReason('   ');
-    expect(result.valid).toBe(false);
+    expect(validateReportReason('   ').valid).toBe(false);
   });
 
   it('rejects reason over 500 characters', () => {

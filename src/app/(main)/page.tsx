@@ -1,39 +1,36 @@
 'use client';
 
+import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { History, Loader2 } from 'lucide-react';
 import { CalorieProgress } from '@/components/home/CalorieProgress';
 import { NutritionBreakdown } from '@/components/home/NutritionBreakdown';
 import { MealRecordCard } from '@/components/meal/MealRecordCard';
 import { MealRecordListSkeleton } from '@/components/skeleton/PageSkeletons';
-import { getMealRecordsByDate } from '@/app/actions/meal';
+import { getMealRecordsByDate, deleteMealRecord } from '@/app/actions/meal';
 import { getUserProfile } from '@/app/actions/user';
-import { deleteMealRecord } from '@/app/actions/meal';
 import { calculateDailyTotals } from '@/lib/utils/food-calorie';
 import { Card, CardContent } from '@/components/ui/card';
-import { History } from 'lucide-react';
-import Link from 'next/link';
 import type { MealRecord } from '@/types';
 
 /**
- * Home page — today's calorie tracking dashboard.
- * Requirement 5.1: Show current day's consumed calories and target
- * Requirement 5.5: Real-time update when adding/deleting meal records
+ * Home page - today's calorie tracking dashboard.
  */
 export default function HomePage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const today = new Date();
+  const [deletingRecordIds, setDeletingRecordIds] = useState<string[]>([]);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const { data: profileResult } = useQuery({
     queryKey: ['userProfile'],
     queryFn: () => getUserProfile(),
   });
 
-  const {
-    data: mealsResult,
-    isLoading,
-  } = useQuery({
+  const { data: mealsResult, isLoading } = useQuery({
     queryKey: ['meals', today.toDateString()],
     queryFn: () => getMealRecordsByDate(today),
   });
@@ -52,10 +49,23 @@ export default function HomePage() {
   );
 
   const handleDelete = async (id: string) => {
-    const result = await deleteMealRecord(id);
-    if (result.success) {
-      // Invalidate to trigger re-fetch — real-time update (Req 5.5)
-      queryClient.invalidateQueries({ queryKey: ['meals'] });
+    if (deletingRecordIds.includes(id)) {
+      return;
+    }
+
+    setDeletingRecordIds((prev) => [...prev, id]);
+    setDeleteError(null);
+
+    try {
+      const result = await deleteMealRecord(id);
+      if (!result.success) {
+        setDeleteError(result.error ?? '删除失败，请重试。');
+        return;
+      }
+
+      await queryClient.invalidateQueries({ queryKey: ['meals'] });
+    } finally {
+      setDeletingRecordIds((prev) => prev.filter((recordId) => recordId !== id));
     }
   };
 
@@ -77,14 +87,12 @@ export default function HomePage() {
         </Link>
       </div>
 
-      {/* Calorie progress card */}
       <Card className="border-orange-200/60 bg-gradient-to-br from-orange-50 via-amber-50 to-white shadow-sm">
         <CardContent className="pt-6">
           <CalorieProgress current={dailyTotals.calories} target={target} />
         </CardContent>
       </Card>
 
-      {/* Nutrition breakdown card */}
       <Card className="border-orange-200/60 bg-gradient-to-br from-orange-50 via-amber-50 to-white shadow-sm">
         <CardContent className="pt-6">
           <NutritionBreakdown
@@ -95,15 +103,27 @@ export default function HomePage() {
         </CardContent>
       </Card>
 
-      {/* Meal records */}
       <div className="space-y-2">
-        <h2 className="text-sm font-medium text-muted-foreground">今日记录</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-muted-foreground">今日记录</h2>
+          {deletingRecordIds.length > 0 ? (
+            <span className="inline-flex items-center gap-1 text-xs text-orange-700">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              删除中...
+            </span>
+          ) : null}
+        </div>
+
+        {deleteError ? (
+          <p className="text-xs text-destructive" role="alert">
+            {deleteError}
+          </p>
+        ) : null}
+
         {isLoading ? (
           <MealRecordListSkeleton count={3} />
         ) : meals.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            还没有记录，去添加一餐吧 🍽️
-          </p>
+          <p className="py-8 text-center text-sm text-muted-foreground">还没有记录，去添加一餐吧 🍽️</p>
         ) : (
           meals.map((record) => (
             <MealRecordCard
@@ -111,6 +131,7 @@ export default function HomePage() {
               record={record}
               onEdit={handleEdit}
               onDelete={handleDelete}
+              isDeleting={deletingRecordIds.includes(record.id)}
             />
           ))
         )}

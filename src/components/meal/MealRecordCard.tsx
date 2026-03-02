@@ -1,6 +1,7 @@
 'use client';
 
-import { Edit2, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Edit2, Image as ImageIcon, Loader2, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { MealRecord, MealType } from '@/types';
@@ -13,7 +14,7 @@ const MEAL_TYPE_LABELS: Record<MealType, string> = {
 };
 
 const MEAL_TYPE_EMOJI: Record<MealType, string> = {
-  breakfast: '🥐',
+  breakfast: '🥣',
   lunch: '🍱',
   dinner: '🍲',
   snack: '🍎',
@@ -22,7 +23,8 @@ const MEAL_TYPE_EMOJI: Record<MealType, string> = {
 interface MealRecordCardProps {
   record: MealRecord;
   onEdit?: (record: MealRecord) => void;
-  onDelete?: (id: string) => void;
+  onDelete?: (id: string) => Promise<void> | void;
+  isDeleting?: boolean;
 }
 
 function formatRecordedTime(date: Date): string {
@@ -39,15 +41,28 @@ function getMealImageUrls(record: MealRecord): string[] {
   if (Array.isArray(record.imageUrls) && record.imageUrls.length > 0) {
     return record.imageUrls;
   }
+
   if (record.imageUrl) {
     return [record.imageUrl];
   }
+
   return [];
 }
 
-export function MealRecordCard({ record, onEdit, onDelete }: MealRecordCardProps) {
+export function MealRecordCard({
+  record,
+  onEdit,
+  onDelete,
+  isDeleting = false,
+}: MealRecordCardProps) {
   const imageUrls = getMealImageUrls(record);
-  const coverImage = imageUrls[0] ?? null;
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+
+  useEffect(() => {
+    setActiveImageIndex(0);
+  }, [record.id, imageUrls.length]);
+
+  const coverImage = imageUrls[activeImageIndex] ?? imageUrls[0] ?? null;
   const hasImageBackground = Boolean(coverImage);
 
   return (
@@ -61,6 +76,15 @@ export function MealRecordCard({ record, onEdit, onDelete }: MealRecordCardProps
       ) : (
         <div className="absolute inset-0 bg-gradient-to-br from-orange-100 via-amber-100 to-yellow-50" />
       )}
+
+      {isDeleting ? (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/35 backdrop-blur-[1px]">
+          <div className="inline-flex items-center gap-2 rounded-full bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-800">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            删除中...
+          </div>
+        </div>
+      ) : null}
 
       <CardHeader className="relative pb-2">
         <div className="flex items-start justify-between gap-2">
@@ -83,7 +107,7 @@ export function MealRecordCard({ record, onEdit, onDelete }: MealRecordCardProps
           </CardTitle>
 
           <div className="flex gap-1">
-            {onEdit && (
+            {onEdit ? (
               <Button
                 variant="ghost"
                 size="icon"
@@ -93,12 +117,14 @@ export function MealRecordCard({ record, onEdit, onDelete }: MealRecordCardProps
                     : 'text-orange-700 hover:bg-orange-200/80'
                 }`}
                 onClick={() => onEdit(record)}
+                disabled={isDeleting}
                 aria-label="编辑记录"
               >
                 <Edit2 className="h-4 w-4" />
               </Button>
-            )}
-            {onDelete && (
+            ) : null}
+
+            {onDelete ? (
               <Button
                 variant="ghost"
                 size="icon"
@@ -108,11 +134,16 @@ export function MealRecordCard({ record, onEdit, onDelete }: MealRecordCardProps
                     : 'text-red-600 hover:bg-red-100'
                 }`}
                 onClick={() => onDelete(record.id)}
+                disabled={isDeleting}
                 aria-label="删除记录"
               >
-                <Trash2 className="h-4 w-4" />
+                {isDeleting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
               </Button>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -121,27 +152,44 @@ export function MealRecordCard({ record, onEdit, onDelete }: MealRecordCardProps
             hasImageBackground ? 'text-white/85' : 'text-orange-800/80'
           }`}
         >
-          <span>记录时间：{formatRecordedTime(new Date(record.recordedAt))}</span>
-          {imageUrls.length > 0 && (
+          <span>记录时间: {formatRecordedTime(new Date(record.recordedAt))}</span>
+          {imageUrls.length > 0 ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-black/25 px-2 py-0.5 text-[11px] text-white backdrop-blur">
               <ImageIcon className="h-3 w-3" />
               {imageUrls.length}/3 张
             </span>
-          )}
+          ) : null}
         </div>
       </CardHeader>
 
       <CardContent className="relative space-y-2">
-        {imageUrls.length > 1 && (
+        {imageUrls.length > 1 ? (
           <div className="flex gap-1.5">
-            {imageUrls.slice(1, 3).map((url, index) => (
-              <div key={`${url.slice(0, 24)}-${index}`} className="h-10 w-10 overflow-hidden rounded-md border border-white/30">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt={`附图 ${index + 2}`} className="h-full w-full object-cover" />
-              </div>
-            ))}
+            {imageUrls.map((url, index) => {
+              const isActive = index === activeImageIndex;
+
+              return (
+                <button
+                  key={`${url.slice(0, 24)}-${index}`}
+                  type="button"
+                  className={`h-10 w-10 overflow-hidden rounded-md border transition ${
+                    isActive
+                      ? 'border-orange-300 ring-2 ring-orange-300/70'
+                      : hasImageBackground
+                        ? 'border-white/35 hover:border-white/70'
+                        : 'border-orange-200 hover:border-orange-300'
+                  }`}
+                  onClick={() => setActiveImageIndex(index)}
+                  aria-label={`切换到第 ${index + 1} 张图片`}
+                  aria-pressed={isActive}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={url} alt={`附图 ${index + 1}`} className="h-full w-full object-cover" />
+                </button>
+              );
+            })}
           </div>
-        )}
+        ) : null}
 
         <ul className="space-y-1" aria-label="食物列表">
           {record.foods.map((food) => (
