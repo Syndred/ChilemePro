@@ -17,15 +17,18 @@ import {
 import type { MembershipStatus } from '@/lib/utils/membership';
 
 type SelectedPlan = 'monthly' | 'yearly';
+type PaymentProvider = 'wechat' | 'alipay';
 
 export default function MembershipPage() {
   const router = useRouter();
   const [status, setStatus] = useState<MembershipStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState<SelectedPlan>('yearly');
+  const [provider, setProvider] = useState<PaymentProvider>('wechat');
   const [paying, setPaying] = useState(false);
   const [pendingTxId, setPendingTxId] = useState<string | null>(null);
   const [paymentHint, setPaymentHint] = useState<string | null>(null);
+  const providerLabel = provider === 'wechat' ? '微信支付' : '支付宝';
 
   const loadStatus = useCallback(async () => {
     const result = await getMembershipStatus();
@@ -69,7 +72,7 @@ export default function MembershipPage() {
 
     try {
       const plan = MEMBERSHIP_PLANS[selectedPlan];
-      const response = await fetch('/api/payment/stripe', {
+      const response = await fetch(`/api/payment/${provider}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -86,29 +89,29 @@ export default function MembershipPage() {
       };
 
       if (!response.ok) {
-        setPaymentHint(data.error ?? '支付创建失败，请重试');
+        setPaymentHint(data.error ?? `${providerLabel}下单失败，请重试`);
         return;
       }
 
       if (data.status === 'completed') {
-        setPaymentHint(data.mock ? '测试支付成功，会员已生效' : '支付成功');
+        setPaymentHint(data.mock ? `测试${providerLabel}成功，会员已生效` : `${providerLabel}成功`);
         await loadStatus();
         return;
       }
 
       if (data.paymentIntentId) {
         setPendingTxId(data.paymentIntentId);
-        setPaymentHint('订单已创建，请完成支付后等待状态更新');
+        setPaymentHint(`订单已创建，请完成${providerLabel}后等待状态更新`);
         return;
       }
 
-      setPaymentHint('支付订单创建成功，请完成支付');
+      setPaymentHint(`支付订单创建成功，请完成${providerLabel}`);
     } catch {
       setPaymentHint('网络错误，请重试');
     } finally {
       setPaying(false);
     }
-  }, [selectedPlan, loadStatus]);
+  }, [selectedPlan, provider, providerLabel, loadStatus]);
 
   const savingsPercent = getYearlySavingsPercent();
 
@@ -257,6 +260,25 @@ export default function MembershipPage() {
             </div>
           </Card>
 
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant={provider === 'wechat' ? 'default' : 'outline'}
+              onClick={() => setProvider('wechat')}
+              disabled={paying || !!pendingTxId}
+            >
+              微信支付
+            </Button>
+            <Button
+              type="button"
+              variant={provider === 'alipay' ? 'default' : 'outline'}
+              onClick={() => setProvider('alipay')}
+              disabled={paying || !!pendingTxId}
+            >
+              支付宝
+            </Button>
+          </div>
+
           <Button className="w-full" size="lg" onClick={handleSubscribe} disabled={paying || !!pendingTxId}>
             {paying ? (
               <>
@@ -269,7 +291,7 @@ export default function MembershipPage() {
                 等待支付结果...
               </>
             ) : (
-              `立即订阅 ¥${MEMBERSHIP_PLANS[selectedPlan].price}/${MEMBERSHIP_PLANS[selectedPlan].period}`
+              `使用${providerLabel}订阅 ¥${MEMBERSHIP_PLANS[selectedPlan].price}/${MEMBERSHIP_PLANS[selectedPlan].period}`
             )}
           </Button>
 

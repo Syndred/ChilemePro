@@ -20,6 +20,8 @@ interface JoinPaymentResult {
   status?: 'pending' | 'completed';
 }
 
+type PaymentProvider = 'wechat' | 'alipay';
+
 /**
  * Join challenge page.
  * Security fix: this page now creates a payment transaction first.
@@ -29,10 +31,12 @@ export default function JoinChallengePage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [agreed, setAgreed] = useState(false);
+  const [provider, setProvider] = useState<PaymentProvider>('wechat');
+  const providerLabel = provider === 'wechat' ? '微信支付' : '支付宝';
 
   const joinMutation = useMutation({
     mutationFn: async (): Promise<JoinPaymentResult> => {
-      const response = await fetch('/api/payment/stripe', {
+      const response = await fetch(`/api/payment/${provider}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -50,7 +54,7 @@ export default function JoinChallengePage() {
       if (!response.ok) {
         return {
           success: false,
-          error: data.error ?? '支付创建失败，请重试',
+          error: data.error ?? `${providerLabel}下单失败，请重试`,
         };
       }
 
@@ -168,6 +172,23 @@ export default function JoinChallengePage() {
         </Card>
 
         <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant={provider === 'wechat' ? 'default' : 'outline'}
+              onClick={() => setProvider('wechat')}
+            >
+              微信支付
+            </Button>
+            <Button
+              type="button"
+              variant={provider === 'alipay' ? 'default' : 'outline'}
+              onClick={() => setProvider('alipay')}
+            >
+              支付宝
+            </Button>
+          </div>
+
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -189,7 +210,7 @@ export default function JoinChallengePage() {
             {joinMutation.isPending ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : null}
-            支付 ¥{CHALLENGE_DEPOSIT} 并参与挑战
+            使用{providerLabel}支付 ¥{CHALLENGE_DEPOSIT} 并参与挑战
           </Button>
         </div>
       </motion.div>
