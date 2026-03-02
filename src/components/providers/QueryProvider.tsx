@@ -37,12 +37,14 @@ async function processOfflineQueue() {
             serving: number;
             unit: string;
           }>;
+          imageUrl?: string;
           recordedAt: string;
         };
 
         const result = await createMealRecord({
           mealType: payload.mealType,
           foods: payload.foods,
+          imageUrl: payload.imageUrl,
           recordedAt: new Date(payload.recordedAt),
         });
 

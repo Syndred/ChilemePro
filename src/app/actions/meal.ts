@@ -181,7 +181,7 @@ export async function updateMealRecord(
     };
 
     if (mealType) updatePayload.meal_type = mealType;
-    if (imageUrl) updatePayload.image_url = imageUrl;
+    if (imageUrl !== undefined) updatePayload.image_url = imageUrl;
 
     // If foods are provided, recalculate totals and replace food items
     if (foods && foods.length > 0) {
