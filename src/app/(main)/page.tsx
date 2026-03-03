@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -21,16 +21,31 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { toast } from '@/lib/ui/toast';
 import type { MealRecord } from '@/types';
 
+const HOME_MEAL_HIGHLIGHT_KEY = 'home:meal-highlight';
+
+interface HomeMealHighlightPayload {
+  recordId: string;
+  dateKey: string;
+}
+
+function sortMealsByLatest(records: MealRecord[]): MealRecord[] {
+  return [...records].sort(
+    (a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime(),
+  );
+}
+
 /**
  * Home page - calorie tracking dashboard.
  */
 export default function HomePage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const recordNodeRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   const [deletingRecordIds, setDeletingRecordIds] = useState<string[]>([]);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [highlightRecordId, setHighlightRecordId] = useState<string | null>(null);
 
   const selectedDateKey = selectedDate.toDateString();
   const isToday = selectedDateKey === new Date().toDateString();
@@ -50,6 +65,7 @@ export default function HomePage() {
     () => (mealsResult?.success ? mealsResult.data ?? [] : []),
     [mealsResult],
   );
+  const orderedMeals = useMemo(() => sortMealsByLatest(meals), [meals]);
   const target = profile?.dailyCalorieTarget ?? 2000;
 
   const dailyTotals = useMemo(
@@ -64,6 +80,53 @@ export default function HomePage() {
       ),
     [meals],
   );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const raw = sessionStorage.getItem(HOME_MEAL_HIGHLIGHT_KEY);
+    if (!raw) {
+      return;
+    }
+
+    sessionStorage.removeItem(HOME_MEAL_HIGHLIGHT_KEY);
+
+    try {
+      const parsed = JSON.parse(raw) as Partial<HomeMealHighlightPayload>;
+      if (!parsed.recordId || !parsed.dateKey) {
+        return;
+      }
+
+      const highlightedDate = new Date(parsed.dateKey);
+      if (!Number.isNaN(highlightedDate.getTime())) {
+        setSelectedDate(highlightedDate);
+      }
+      setHighlightRecordId(parsed.recordId);
+    } catch {
+      // Ignore malformed storage payload
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!highlightRecordId) {
+      return;
+    }
+
+    const target = recordNodeRefs.current[highlightRecordId];
+    if (!target) {
+      return;
+    }
+
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    const timer = window.setTimeout(() => {
+      setHighlightRecordId((current) => (current === highlightRecordId ? null : current));
+    }, 1800);
+
+    return () => window.clearTimeout(timer);
+  }, [highlightRecordId, selectedDateKey, orderedMeals.length]);
 
   const handleDelete = async (id: string) => {
     if (deletingRecordIds.includes(id)) {
@@ -189,19 +252,30 @@ export default function HomePage() {
           <p className="py-8 text-center text-sm text-destructive">{mealsResult.error ?? '加载失败，请重试。'}</p>
         ) : isLoading ? (
           <MealRecordListSkeleton count={3} />
-        ) : meals.length === 0 ? (
+        ) : orderedMeals.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
             该日期暂无饮食记录
           </p>
         ) : (
-          meals.map((record) => (
-            <MealRecordCard
+          orderedMeals.map((record) => (
+            <div
               key={record.id}
-              record={record}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-              isDeleting={deletingRecordIds.includes(record.id)}
-            />
+              ref={(node) => {
+                recordNodeRefs.current[record.id] = node;
+              }}
+              className={
+                record.id === highlightRecordId
+                  ? 'rounded-2xl ring-2 ring-orange-300/80 ring-offset-2 ring-offset-white transition-all duration-300'
+                  : ''
+              }
+            >
+              <MealRecordCard
+                record={record}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                isDeleting={deletingRecordIds.includes(record.id)}
+              />
+            </div>
           ))
         )}
       </div>

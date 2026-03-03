@@ -22,15 +22,16 @@ import { MainPageSkeleton } from '@/components/skeleton/PageSkeletons';
 import { FoodSearch, type FoodSearchItem } from '@/components/meal/FoodSearch';
 import { createMealRecord, getMealRecordById, updateMealRecord } from '@/app/actions/meal';
 import { enqueueSync, cacheMealRecord } from '@/lib/offline/offline-store';
+import { toast } from '@/lib/ui/toast';
 import { calculateFoodNutrition, calculateMealTotals } from '@/lib/utils/food-calorie';
 import { clampNumber, parseOptionalNumber } from '@/lib/validations/number';
-import type { MealType, RecognizedFood } from '@/types';
+import type { MealRecord, MealType, RecognizedFood } from '@/types';
 
 const MEAL_TYPES: { value: MealType; label: string; emoji: string }[] = [
-  { value: 'breakfast', label: '早餐', emoji: '🥣' },
-  { value: 'lunch', label: '午餐', emoji: '🍱' },
-  { value: 'dinner', label: '晚餐', emoji: '🍲' },
-  { value: 'snack', label: '加餐', emoji: '🍎' },
+  { value: 'breakfast', label: '早餐', emoji: '\u{1F963}' },
+  { value: 'lunch', label: '午餐', emoji: '\u{1F371}' },
+  { value: 'dinner', label: '晚餐', emoji: '\u{1F372}' },
+  { value: 'snack', label: '加餐', emoji: '\u{1F34E}' },
 ];
 
 const MIN_SERVING = 1;
@@ -40,6 +41,13 @@ const MAX_MEAL_IMAGES = 3;
 const MAX_COMPRESSED_IMAGE_BYTES = 550 * 1024;
 const MAX_TOTAL_IMAGE_BYTES = 2 * 1024 * 1024;
 const IMAGE_MAX_EDGE = 1280;
+const HOME_MEAL_HIGHLIGHT_KEY = 'home:meal-highlight';
+
+interface MealsQueryResult {
+  success: boolean;
+  data?: MealRecord[];
+  error?: string;
+}
 
 interface AddedFood {
   key: string;
@@ -154,13 +162,38 @@ function getRecordImageUrls(record: { imageUrls?: string[]; imageUrl?: string | 
   return [];
 }
 
+function getDefaultMealTypeByCurrentTime(now: Date = new Date()): MealType {
+  const hour = now.getHours();
+
+  if (hour >= 5 && hour < 10) {
+    return 'breakfast';
+  }
+  if (hour >= 10 && hour < 15) {
+    return 'lunch';
+  }
+  if (hour >= 17 && hour < 21) {
+    return 'dinner';
+  }
+  return 'snack';
+}
+
+function toDayKey(date: Date | string): string {
+  return new Date(date).toDateString();
+}
+
+function sortMealsByLatest(records: MealRecord[]): MealRecord[] {
+  return [...records].sort(
+    (a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime(),
+  );
+}
+
 export default function AddMealPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const editId = searchParams.get('edit');
 
-  const [mealType, setMealType] = useState<MealType>('lunch');
+  const [mealType, setMealType] = useState<MealType>(() => getDefaultMealTypeByCurrentTime());
   const [foods, setFoods] = useState<AddedFood[]>([]);
   const [mealImages, setMealImages] = useState<string[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
@@ -175,13 +208,78 @@ export default function AddMealPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const addFoodFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const navigateToHomeWithFreshData = async () => {
-    await Promise.allSettled([
-      queryClient.invalidateQueries({ queryKey: ['meals'] }),
-      queryClient.invalidateQueries({ queryKey: ['calorieStats'] }),
-    ]);
+  const persistHomeMealHighlight = (record: MealRecord) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    sessionStorage.setItem(
+      HOME_MEAL_HIGHLIGHT_KEY,
+      JSON.stringify({
+        recordId: record.id,
+        dateKey: toDayKey(record.recordedAt),
+      }),
+    );
+  };
+
+  const upsertRecordIntoHomeCache = (record: MealRecord) => {
+    const key = ['meals', toDayKey(record.recordedAt)] as const;
+
+    queryClient.setQueryData<MealsQueryResult>(key, (current) => {
+      const existing = current?.success ? current.data ?? [] : [];
+      const withoutCurrent = existing.filter((item) => item.id !== record.id);
+      return {
+        success: true,
+        data: sortMealsByLatest([record, ...withoutCurrent]),
+      };
+    });
+  };
+
+  const createLocalRecord = (recordId: string, recordedAt: Date = new Date()): MealRecord => {
+    return {
+      id: recordId,
+      userId: 'local',
+      mealType,
+      foods: foods.map((food, index) => ({
+        id: `${recordId}-food-${index}`,
+        mealRecordId: recordId,
+        name: food.name,
+        calories: food.calories,
+        protein: food.protein,
+        fat: food.fat,
+        carbs: food.carbs,
+        serving: food.serving,
+        unit: food.unit,
+        createdAt: recordedAt,
+      })),
+      totalCalories: totals.calories,
+      totalProtein: totals.protein,
+      totalFat: totals.fat,
+      totalCarbs: totals.carbs,
+      imageUrls: mealImages,
+      imageUrl: mealImages[0] ?? null,
+      recordedAt,
+      createdAt: recordedAt,
+      updatedAt: recordedAt,
+    };
+  };
+
+  const navigateToHomeWithFreshData = async (
+    nextRecord: MealRecord | null,
+    successMessage?: string,
+  ) => {
+    if (nextRecord) {
+      upsertRecordIntoHomeCache(nextRecord);
+      persistHomeMealHighlight(nextRecord);
+    }
+
+    if (successMessage) {
+      toast.success(successMessage);
+    }
+
+    void queryClient.invalidateQueries({ queryKey: ['meals'] });
+    void queryClient.invalidateQueries({ queryKey: ['calorieStats'] });
     router.replace('/');
-    router.refresh();
   };
 
   useEffect(() => {
@@ -429,8 +527,10 @@ export default function AddMealPage() {
   const totals = calculateMealTotals(foods);
   const canAddMoreImages = mealImages.length < MAX_MEAL_IMAGES;
 
-  const queueOfflineRecord = async () => {
+  const queueOfflineRecord = async (): Promise<MealRecord> => {
     const recordId = `offline_${Date.now()}`;
+    const recordedAt = new Date();
+
     const payload = {
       mealType,
       foods: foods.map((food) => ({
@@ -443,7 +543,7 @@ export default function AddMealPage() {
         unit: food.unit,
       })),
       imageUrls: mealImages.length > 0 ? mealImages : undefined,
-      recordedAt: new Date().toISOString(),
+      recordedAt: recordedAt.toISOString(),
     };
 
     await enqueueSync({
@@ -465,11 +565,15 @@ export default function AddMealPage() {
       image_url: serializeImagesForLegacyField(mealImages),
       recorded_at: payload.recordedAt,
     });
+
+    return createLocalRecord(recordId, recordedAt);
   };
 
   const handleSubmit = async () => {
     if (foods.length === 0) {
-      setError('请至少添加一种食物后再保存。');
+      const message = '请至少添加一种食物后再保存。';
+      setError(message);
+      toast.error(message);
       return;
     }
 
@@ -493,13 +597,15 @@ export default function AddMealPage() {
 
     try {
       if (editingRecordId && !navigator.onLine) {
-        setError('离线状态下暂不支持编辑记录，请联网后重试。');
+        const message = '离线状态下暂不支持编辑记录，请联网后重试。';
+        setError(message);
+        toast.error(message);
         return;
       }
 
       if (!navigator.onLine) {
-        await queueOfflineRecord();
-        await navigateToHomeWithFreshData();
+        const offlineRecord = await queueOfflineRecord();
+        await navigateToHomeWithFreshData(offlineRecord, '已离线保存，联网后自动同步');
         return;
       }
 
@@ -512,29 +618,36 @@ export default function AddMealPage() {
         : await createMealRecord(payload);
 
       if (result.success) {
-        await navigateToHomeWithFreshData();
+        const nextRecord = result.data ?? createLocalRecord(editingRecordId ?? `temp_${Date.now()}`);
+        await navigateToHomeWithFreshData(nextRecord, editingRecordId ? '更新成功' : '添加成功');
         return;
       }
 
       if (!navigator.onLine) {
-        await queueOfflineRecord();
-        await navigateToHomeWithFreshData();
+        const offlineRecord = await queueOfflineRecord();
+        await navigateToHomeWithFreshData(offlineRecord, '已离线保存，联网后自动同步');
         return;
       }
 
-      setError(result.error ?? '保存失败，请稍后重试。');
+      const message = result.error ?? '保存失败，请稍后重试。';
+      setError(message);
+      toast.error(message);
     } catch (submitError) {
       if (!navigator.onLine) {
-        await queueOfflineRecord();
-        await navigateToHomeWithFreshData();
+        const offlineRecord = await queueOfflineRecord();
+        await navigateToHomeWithFreshData(offlineRecord, '已离线保存，联网后自动同步');
         return;
       }
 
       const message = submitError instanceof Error ? submitError.message.toLowerCase() : '';
       if (message.includes('body') || message.includes('payload') || message.includes('413')) {
-        setError('图片数据过大，请减少图片或重新上传后重试。');
+        const nextError = '图片数据过大，请减少图片或重新上传后重试。';
+        setError(nextError);
+        toast.error(nextError);
       } else {
-        setError('网络异常，请稍后重试。');
+        const nextError = '网络异常，请稍后重试。';
+        setError(nextError);
+        toast.error(nextError);
       }
     } finally {
       setIsSubmitting(false);
@@ -601,7 +714,7 @@ export default function AddMealPage() {
             onChange={handleImageFileChange}
           />
 
-                    <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             {mealImages.map((image, index) => (
               <div key={`${image.slice(0, 24)}-${index}`} className="relative overflow-hidden rounded-lg border">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -739,7 +852,7 @@ export default function AddMealPage() {
                     size="icon"
                     className="h-8 w-8 text-destructive"
                     onClick={() => handleRemoveFood(index)}
-                    aria-label={`鍒犻櫎${food.name}`}
+                    aria-label={`删除 ${food.name}`}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -835,5 +948,3 @@ export default function AddMealPage() {
     </div>
   );
 }
-
-
