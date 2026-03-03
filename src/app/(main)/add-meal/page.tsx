@@ -207,6 +207,9 @@ export default function AddMealPage() {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const addFoodFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const addFoodCardRef = useRef<HTMLDivElement | null>(null);
+  const addedTagListRef = useRef<HTMLDivElement | null>(null);
+  const addedTagNodeRefs = useRef<Record<string, HTMLSpanElement | null>>({});
 
   const persistHomeMealHighlight = (record: MealRecord) => {
     if (typeof window === 'undefined') {
@@ -363,6 +366,26 @@ export default function AddMealPage() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!lastAddedFoodKey) {
+      return;
+    }
+
+    const addFoodCardNode = addFoodCardRef.current;
+    if (!addFoodCardNode || typeof window === 'undefined') {
+      return;
+    }
+
+    const rect = addFoodCardNode.getBoundingClientRect();
+    const cardTop = window.scrollY + rect.top;
+    const nextTop = Math.max(0, cardTop + rect.height / 2 - window.innerHeight / 2);
+
+    window.scrollTo({
+      top: nextTop,
+      behavior: 'smooth',
+    });
+  }, [lastAddedFoodKey, foods.length]);
 
   const handleFoodSelect = (food: FoodSearchItem) => {
     const nutrition = calculateFoodNutrition({
@@ -785,7 +808,7 @@ export default function AddMealPage() {
         </CardContent>
       </Card>
 
-      <Card className="py-4 shadow-sm">
+      <Card ref={addFoodCardRef} className="py-4 shadow-sm">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">添加食物</CardTitle>
         </CardHeader>
@@ -804,11 +827,18 @@ export default function AddMealPage() {
             </div>
 
             {foods.length > 0 ? (
-              <div className="mt-2 flex flex-wrap gap-1.5">
+              <div ref={addedTagListRef} className="mt-2 flex flex-wrap gap-1.5">
                 {foods.slice(0, 6).map((food) => (
                   <span
                     key={`food-pill-${food.key}`}
-                    className="rounded-full bg-white px-2 py-1 text-xs text-orange-700 shadow-sm"
+                    ref={(node) => {
+                      addedTagNodeRefs.current[food.key] = node;
+                    }}
+                    className={`rounded-full px-2 py-1 text-xs shadow-sm transition-all duration-300 ${
+                      lastAddedFoodKey === food.key
+                        ? 'scale-105 bg-orange-100 text-orange-800 ring-2 ring-orange-300/70'
+                        : 'bg-white text-orange-700'
+                    }`}
                   >
                     {food.name}
                   </span>
