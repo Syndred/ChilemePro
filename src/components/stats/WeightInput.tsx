@@ -6,6 +6,7 @@ import { Loader2, Scale } from 'lucide-react';
 import { saveWeightRecord } from '@/app/actions/weight';
 import { NumberStepperField } from '@/components/form/NumberStepperField';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/lib/ui/toast';
 import {
   Dialog,
   DialogContent,
@@ -39,9 +40,11 @@ export function WeightInput() {
       setWeight(DEFAULT_WEIGHT);
       setError('');
       setOpen(false);
+      toast.success('\u5DF2\u4FDD\u5B58\u4F53\u91CD');
     },
     onError: (err: Error) => {
       setError(err.message);
+      toast.error(err.message);
     },
   });
 

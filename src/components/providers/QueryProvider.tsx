@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { createMealRecord } from '@/app/actions/meal';
+import { GlobalToastViewport } from '@/components/ui/global-toast';
 import {
   getPendingSyncItems,
   markSynced,
@@ -112,5 +113,10 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('online', onOnline);
   }, []);
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      {children}
+      <GlobalToastViewport />
+    </QueryClientProvider>
+  );
 }

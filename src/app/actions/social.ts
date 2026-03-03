@@ -20,6 +20,25 @@ interface DbErrorLike {
 
 type ServerSupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
+interface LikeRpcResultRow {
+  is_liked: boolean;
+  likes_count: number;
+}
+
+interface AddCommentRpcResultRow {
+  comment_id: string;
+  post_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  comments_count: number;
+}
+
+interface DeleteCommentRpcResultRow {
+  post_id: string;
+  comments_count: number;
+}
+
 function mapDbWriteError(error: DbErrorLike | null | undefined, fallback: string): string {
   if (!error) {
     return fallback;
@@ -34,6 +53,23 @@ function mapDbWriteError(error: DbErrorLike | null | undefined, fallback: string
       return '提交的数据格式不正确，请检查后重试';
     default:
       return fallback;
+  }
+}
+
+function mapRpcError(error: DbErrorLike | null | undefined, fallback: string): string {
+  if (!error) {
+    return fallback;
+  }
+
+  switch (error.code) {
+    case 'PGRST202':
+    case '42883':
+      return '服务升级中，请稍后重试';
+    case 'PGRST301':
+    case '401':
+      return '登录状态已过期，请重新登录';
+    default:
+      return mapDbWriteError(error, fallback);
   }
 }
 
@@ -116,11 +152,11 @@ function mapSocialPost(
   };
 }
 
-async function getCurrentUserId(): Promise<string | null> {
-  const supabase = await createClient();
+async function getCurrentUserId(supabase?: ServerSupabaseClient): Promise<string | null> {
+  const client = supabase ?? (await createClient());
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await client.auth.getUser();
   return user?.id ?? null;
 }
 
@@ -139,7 +175,7 @@ export async function createPost(input: unknown): Promise<ActionResult<SocialPos
 
   try {
     const supabase = await createClient();
-    const userId = await getCurrentUserId();
+    const userId = await getCurrentUserId(supabase);
 
     if (!userId) {
       return { success: false, error: '请先登录' };
@@ -210,7 +246,7 @@ export async function deletePost(postId: string): Promise<ActionResult> {
 
   try {
     const supabase = await createClient();
-    const userId = await getCurrentUserId();
+    const userId = await getCurrentUserId(supabase);
 
     if (!userId) {
       return { success: false, error: '请先登录' };
@@ -237,89 +273,82 @@ export async function deletePost(postId: string): Promise<ActionResult> {
   }
 }
 
-export async function likePost(postId: string): Promise<ActionResult> {
+export async function likePost(
+  postId: string,
+): Promise<ActionResult<{ isLiked: boolean; likesCount: number }>> {
   if (!postId) {
     return { success: false, error: '动态 ID 不能为空' };
   }
 
   try {
     const supabase = await createClient();
-    const userId = await getCurrentUserId();
 
-    if (!userId) {
-      return { success: false, error: '请先登录' };
-    }
+    const { data, error: likeError } = await supabase
+      .rpc('social_like_post_atomic', { p_post_id: postId })
+      .single<LikeRpcResultRow>();
 
-    await ensureUserProfileRow(supabase, userId);
-
-    const { error: likeError } = await supabase
-      .from('post_likes')
-      .insert({ post_id: postId, user_id: userId });
-
-    if (likeError) {
-      if (likeError.code === '23505') {
-        return { success: false, error: '已点赞' };
+    if (likeError || !data) {
+      if (likeError?.code === '42501') {
+        return { success: false, error: '无权限操作该动态' };
+      }
+      if (likeError?.code === 'P0002' || likeError?.code === '23503') {
+        return { success: false, error: '动态不存在或无权限操作' };
       }
       console.error('likePost failed', {
         postId,
-        userId,
-        code: likeError.code,
-        message: likeError.message,
-        details: likeError.details,
+        code: likeError?.code,
+        message: likeError?.message,
+        details: likeError?.details,
       });
-      return { success: false, error: mapDbWriteError(likeError, '点赞失败，请重试') };
+      return { success: false, error: mapRpcError(likeError, '点赞失败，请重试') };
     }
 
-    const { data: postData } = await supabase
-      .from('social_posts')
-      .select('likes_count')
-      .eq('id', postId)
-      .single();
-
-    await supabase
-      .from('social_posts')
-      .update({ likes_count: Number(postData?.likes_count ?? 0) + 1 })
-      .eq('id', postId);
-
-    return { success: true };
+    return {
+      success: true,
+      data: {
+        isLiked: Boolean(data.is_liked),
+        likesCount: Number(data.likes_count ?? 0),
+      },
+    };
   } catch {
     return { success: false, error: '服务器错误，请稍后重试' };
   }
 }
 
-export async function unlikePost(postId: string): Promise<ActionResult> {
+export async function unlikePost(
+  postId: string,
+): Promise<ActionResult<{ isLiked: boolean; likesCount: number }>> {
   if (!postId) {
     return { success: false, error: '动态 ID 不能为空' };
   }
 
   try {
     const supabase = await createClient();
-    const userId = await getCurrentUserId();
 
-    if (!userId) {
-      return { success: false, error: '请先登录' };
+    const { data, error } = await supabase
+      .rpc('social_unlike_post_atomic', { p_post_id: postId })
+      .single<LikeRpcResultRow>();
+
+    if (error || !data) {
+      if (error?.code === 'P0002' || error?.code === '23503') {
+        return { success: false, error: '动态不存在或已删除' };
+      }
+      console.error('unlikePost failed', {
+        postId,
+        code: error?.code,
+        message: error?.message,
+        details: error?.details,
+      });
+      return { success: false, error: mapRpcError(error, '取消点赞失败，请重试') };
     }
 
-    const { error } = await supabase
-      .from('post_likes')
-      .delete()
-      .eq('post_id', postId)
-      .eq('user_id', userId);
-
-    if (error) {
-      return { success: false, error: '取消点赞失败，请重试' };
-    }
-
-    const { data: postData } = await supabase
-      .from('social_posts')
-      .select('likes_count')
-      .eq('id', postId)
-      .single();
-
-    const nextCount = Math.max(0, Number(postData?.likes_count ?? 0) - 1);
-    await supabase.from('social_posts').update({ likes_count: nextCount }).eq('id', postId);
-
-    return { success: true };
+    return {
+      success: true,
+      data: {
+        isLiked: Boolean(data.is_liked),
+        likesCount: Number(data.likes_count ?? 0),
+      },
+    };
   } catch {
     return { success: false, error: '服务器错误，请稍后重试' };
   }
@@ -340,7 +369,7 @@ export async function addComment(postId: string, content: string): Promise<Actio
 
   try {
     const supabase = await createClient();
-    const userId = await getCurrentUserId();
+    const userId = await getCurrentUserId(supabase);
 
     if (!userId) {
       return { success: false, error: '请先登录' };
@@ -349,12 +378,16 @@ export async function addComment(postId: string, content: string): Promise<Actio
     const { nickname, avatar } = await ensureUserProfileRow(supabase, userId);
 
     const { data: commentRow, error: commentError } = await supabase
-      .from('post_comments')
-      .insert({ post_id: postId, user_id: userId, content: trimmed })
-      .select()
-      .single();
+      .rpc('social_add_comment_atomic', { p_post_id: postId, p_content: trimmed })
+      .single<AddCommentRpcResultRow>();
 
     if (commentError || !commentRow) {
+      if (commentError?.code === '42501') {
+        return { success: false, error: '无权限评论该动态' };
+      }
+      if (commentError?.code === 'P0002' || commentError?.code === '23503') {
+        return { success: false, error: '动态不存在或不可评论' };
+      }
       console.error('addComment failed', {
         postId,
         userId,
@@ -362,29 +395,18 @@ export async function addComment(postId: string, content: string): Promise<Actio
         message: commentError?.message,
         details: commentError?.details,
       });
-      return { success: false, error: mapDbWriteError(commentError, '评论失败，请重试') };
+      return { success: false, error: mapRpcError(commentError, '评论失败，请重试') };
     }
-
-    const { data: postData } = await supabase
-      .from('social_posts')
-      .select('comments_count')
-      .eq('id', postId)
-      .single();
-
-    await supabase
-      .from('social_posts')
-      .update({ comments_count: Number(postData?.comments_count ?? 0) + 1 })
-      .eq('id', postId);
 
     return {
       success: true,
       data: {
-        id: commentRow.id as string,
-        postId,
-        userId,
+        id: commentRow.comment_id,
+        postId: commentRow.post_id,
+        userId: commentRow.user_id,
         user: { nickname, avatar },
-        content: trimmed,
-        createdAt: new Date(commentRow.created_at as string),
+        content: commentRow.content,
+        createdAt: new Date(commentRow.created_at),
       },
     };
   } catch {
@@ -394,50 +416,41 @@ export async function addComment(postId: string, content: string): Promise<Actio
 
 export async function deleteComment(
   commentId: string,
-): Promise<ActionResult<{ postId: string }>> {
+): Promise<ActionResult<{ postId: string; commentsCount: number }>> {
   if (!commentId) {
     return { success: false, error: '评论 ID 不能为空' };
   }
 
   try {
     const supabase = await createClient();
-    const userId = await getCurrentUserId();
 
-    if (!userId) {
-      return { success: false, error: '请先登录' };
+    const { data, error } = await supabase
+      .rpc('social_delete_comment_atomic', { p_comment_id: commentId })
+      .single<DeleteCommentRpcResultRow>();
+
+    if (error || !data) {
+      if (error?.code === 'P0002') {
+        return { success: false, error: '评论不存在或已删除' };
+      }
+      if (error?.code === '42501') {
+        return { success: false, error: '无权限删除该评论' };
+      }
+      console.error('deleteComment failed', {
+        commentId,
+        code: error?.code,
+        message: error?.message,
+        details: error?.details,
+      });
+      return { success: false, error: mapRpcError(error, '删除评论失败，请重试') };
     }
 
-    const { data: commentRow, error: commentQueryError } = await supabase
-      .from('post_comments')
-      .select('id, post_id, user_id')
-      .eq('id', commentId)
-      .single();
-
-    if (commentQueryError || !commentRow) {
-      return { success: false, error: '评论不存在或已删除' };
-    }
-
-    if ((commentRow.user_id as string) !== userId) {
-      return { success: false, error: '无权限删除该评论' };
-    }
-
-    const postId = commentRow.post_id as string;
-    const { error: deleteError } = await supabase.from('post_comments').delete().eq('id', commentId);
-
-    if (deleteError) {
-      return { success: false, error: mapDbWriteError(deleteError, '删除评论失败，请重试') };
-    }
-
-    const { data: postData } = await supabase
-      .from('social_posts')
-      .select('comments_count')
-      .eq('id', postId)
-      .single();
-
-    const nextCount = Math.max(0, Number(postData?.comments_count ?? 0) - 1);
-    await supabase.from('social_posts').update({ comments_count: nextCount }).eq('id', postId);
-
-    return { success: true, data: { postId } };
+    return {
+      success: true,
+      data: {
+        postId: data.post_id,
+        commentsCount: Number(data.comments_count ?? 0),
+      },
+    };
   } catch {
     return { success: false, error: '服务器错误，请稍后重试' };
   }
@@ -450,7 +463,7 @@ export async function followUser(targetUserId: string): Promise<ActionResult> {
 
   try {
     const supabase = await createClient();
-    const userId = await getCurrentUserId();
+    const userId = await getCurrentUserId(supabase);
 
     if (!userId) {
       return { success: false, error: '请先登录' };
@@ -493,7 +506,7 @@ export async function unfollowUser(targetUserId: string): Promise<ActionResult> 
 
   try {
     const supabase = await createClient();
-    const userId = await getCurrentUserId();
+    const userId = await getCurrentUserId(supabase);
 
     if (!userId) {
       return { success: false, error: '请先登录' };
@@ -530,7 +543,7 @@ export async function reportPost(postId: string, reason: string): Promise<Action
 
   try {
     const supabase = await createClient();
-    const userId = await getCurrentUserId();
+    const userId = await getCurrentUserId(supabase);
 
     if (!userId) {
       return { success: false, error: '请先登录' };
@@ -565,7 +578,7 @@ export async function reportPost(postId: string, reason: string): Promise<Action
 export async function getFollowedFeed(): Promise<ActionResult<SocialPost[]>> {
   try {
     const supabase = await createClient();
-    const userId = await getCurrentUserId();
+    const userId = await getCurrentUserId(supabase);
 
     if (!userId) {
       return { success: false, error: '请先登录' };

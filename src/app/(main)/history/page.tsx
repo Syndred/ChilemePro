@@ -14,6 +14,7 @@ import { CalorieProgress } from '@/components/home/CalorieProgress';
 import { NutritionBreakdown } from '@/components/home/NutritionBreakdown';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Card, CardContent } from '@/components/ui/card';
+import { toast } from '@/lib/ui/toast';
 import type { MealRecord } from '@/types';
 
 /**
@@ -60,6 +61,7 @@ export default function HistoryPage() {
     try {
       const result = await deleteMealRecord(id);
       if (!result.success) {
+        toast.error('\u5220\u9664\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5');
         setDeleteError(result.error ?? '删除失败，请重试。');
         return;
       }
@@ -67,6 +69,7 @@ export default function HistoryPage() {
       await queryClient.invalidateQueries({
         queryKey: ['meals', selectedDate.toDateString()],
       });
+      toast.success('\u5DF2\u5220\u9664\u8BB0\u5F55');
     } finally {
       setDeletingRecordIds((prev) => prev.filter((recordId) => recordId !== id));
     }

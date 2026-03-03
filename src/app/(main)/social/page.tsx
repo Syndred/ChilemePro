@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Sparkles, Users } from 'lucide-react';
 import FeedCard from '@/components/social/FeedCard';
@@ -17,6 +17,7 @@ import {
   unlikePost,
 } from '@/app/actions/social';
 import { createClient } from '@/lib/supabase/client';
+import { toast } from '@/lib/ui/toast';
 import type { SocialPost } from '@/types';
 
 async function fetchCurrentUserId(): Promise<string | null> {
@@ -47,20 +48,23 @@ interface CommentSubmitResult {
 }
 
 export default function SocialPage() {
+  const queryClient = useQueryClient();
+  const postNodeRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
   const [pageError, setPageError] = useState<string | null>(null);
   const [deletingPostIds, setDeletingPostIds] = useState<string[]>([]);
   const [likingPostIds, setLikingPostIds] = useState<string[]>([]);
   const [submittingCommentPostIds, setSubmittingCommentPostIds] = useState<string[]>([]);
   const [deletingCommentIds, setDeletingCommentIds] = useState<string[]>([]);
-  const [, setFeedSyncingCount] = useState(0);
   const [isCreatingFlow, setIsCreatingFlow] = useState(false);
+  const [highlightPostId, setHighlightPostId] = useState<string | null>(null);
 
   const feedQuery = useQuery({
     queryKey: SOCIAL_FEED_QUERY_KEY,
     queryFn: async () => {
       const result = await getFollowedFeed();
       if (!result.success) {
-        throw new Error(result.error ?? '加载动态失败，请稍后重试');
+        throw new Error(result.error ?? 'Failed to load social feed. Please try again.');
       }
       return result.data ?? [];
     },
@@ -80,8 +84,8 @@ export default function SocialPage() {
   });
 
   const likeMutation = useMutation({
-    mutationFn: ({ postId, isLiked }: { postId: string; isLiked: boolean }) =>
-      isLiked ? unlikePost(postId) : likePost(postId),
+    mutationFn: ({ postId, nextLiked }: { postId: string; nextLiked: boolean }) =>
+      nextLiked ? likePost(postId) : unlikePost(postId),
   });
 
   const commentMutation = useMutation({
@@ -97,21 +101,36 @@ export default function SocialPage() {
   const currentUserId = userQuery.data ?? undefined;
   const isLoading = feedQuery.isLoading || userQuery.isLoading;
 
-  const syncFeedWithLoading = async (): Promise<boolean> => {
-    setFeedSyncingCount((prev) => prev + 1);
-    try {
-      const refreshed = await feedQuery.refetch();
-      if (refreshed.error) {
-        throw refreshed.error;
+  const updateFeed = (updater: (current: SocialPost[]) => SocialPost[]) => {
+    queryClient.setQueryData<SocialPost[]>(SOCIAL_FEED_QUERY_KEY, (current) => {
+      if (!current) {
+        return current;
       }
-      return true;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '同步动态失败，请稍后重试';
-      setPageError(message);
-      return false;
-    } finally {
-      setFeedSyncingCount((prev) => Math.max(0, prev - 1));
+      return updater(current);
+    });
+  };
+
+  const jumpToPost = (postId: string | null) => {
+    if (typeof window === 'undefined') {
+      return;
     }
+
+    if (!postId) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    const target = postNodeRefs.current[postId];
+    if (!target) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightPostId(postId);
+    window.setTimeout(() => {
+      setHighlightPostId((current) => (current === postId ? null : current));
+    }, 1800);
   };
 
   const handleCreatePost = async (input: {
@@ -125,15 +144,25 @@ export default function SocialPage() {
       const result = await createMutation.mutateAsync(input);
 
       if (!result.success) {
-        const message = result.error ?? '发布动态失败，请稍后重试';
+        const message = result.error ?? '\u53D1\u5E03\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002';
         setPageError(message);
+        toast.error(message);
         return { success: false, error: message };
       }
 
-      const synced = await syncFeedWithLoading();
-      if (!synced) {
-        setPageError('动态已发布，但刷新列表失败，请稍后重试');
+      const createdPostId = result.data?.id ?? null;
+
+      if (result.data) {
+        updateFeed((current) => [
+          result.data!,
+          ...current.filter((post) => post.id !== result.data!.id),
+        ]);
+      } else {
+        await queryClient.invalidateQueries({ queryKey: SOCIAL_FEED_QUERY_KEY });
       }
+
+      toast.success('\u221A \u53D1\u5E03\u6210\u529F');
+      window.setTimeout(() => jumpToPost(createdPostId), 120);
 
       return { success: true };
     } finally {
@@ -148,34 +177,77 @@ export default function SocialPage() {
     try {
       const result = await deleteMutation.mutateAsync(postId);
       if (!result.success) {
-        setPageError(result.error ?? '删除失败，请重试');
+        const message = result.error ?? '\u5220\u9664\u52A8\u6001\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002';
+        setPageError(message);
+        toast.error(message);
         return;
       }
 
-      const synced = await syncFeedWithLoading();
-      if (!synced) {
-        setPageError('删除成功，但刷新列表失败，请稍后重试');
-      }
+      updateFeed((current) => current.filter((post) => post.id !== postId));
+      toast.success('\u5DF2\u5220\u9664\u52A8\u6001');
+    } catch {
+      const message = '\u5220\u9664\u52A8\u6001\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002';
+      setPageError(message);
+      toast.error(message);
     } finally {
       setDeletingPostIds((prev) => removeFromList(prev, postId));
     }
   };
 
-  const handleToggleLike = async (postId: string, isLiked: boolean) => {
+  const handleToggleLike = async (postId: string) => {
     setPageError(null);
     setLikingPostIds((prev) => addToList(prev, postId));
 
-    try {
-      const result = await likeMutation.mutateAsync({ postId, isLiked });
-      if (!result.success) {
-        setPageError(result.error ?? '操作失败，请重试');
-        return;
-      }
+    const previousFeed = queryClient.getQueryData<SocialPost[]>(SOCIAL_FEED_QUERY_KEY);
+    const currentPost = previousFeed?.find((post) => post.id === postId);
+    const nextLiked = !(currentPost?.isLiked ?? false);
 
-      const synced = await syncFeedWithLoading();
-      if (!synced) {
-        setPageError('操作成功，但刷新列表失败，请稍后重试');
+    updateFeed((current) =>
+      current.map((post) => {
+        if (post.id !== postId) {
+          return post;
+        }
+
+        const nextLikes = Math.max(0, post.likes + (nextLiked ? 1 : -1));
+        return {
+          ...post,
+          isLiked: nextLiked,
+          likes: nextLikes,
+        };
+      }),
+    );
+
+    try {
+      const result = await likeMutation.mutateAsync({ postId, nextLiked });
+      if (!result.success) {
+        if (previousFeed) {
+          queryClient.setQueryData(SOCIAL_FEED_QUERY_KEY, previousFeed);
+        }
+        const message = result.error ?? '\u70B9\u8D5E\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5\u3002';
+        setPageError(message);
+        toast.error(message);
+      } else if (result.data) {
+        const { isLiked, likesCount } = result.data;
+        updateFeed((current) =>
+          current.map((post) => {
+            if (post.id !== postId) {
+              return post;
+            }
+            return {
+              ...post,
+              isLiked,
+              likes: Math.max(0, Number(likesCount ?? 0)),
+            };
+          }),
+        );
       }
+    } catch {
+      if (previousFeed) {
+        queryClient.setQueryData(SOCIAL_FEED_QUERY_KEY, previousFeed);
+      }
+      const message = '\u70B9\u8D5E\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5\u3002';
+      setPageError(message);
+      toast.error(message);
     } finally {
       setLikingPostIds((prev) => removeFromList(prev, postId));
     }
@@ -191,14 +263,30 @@ export default function SocialPage() {
     try {
       const result = await commentMutation.mutateAsync({ postId, content });
       if (!result.success) {
-        const message = result.error ?? '评论失败，请重试';
+        const message = result.error ?? '\u8BC4\u8BBA\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002';
         setPageError(message);
+        toast.error(message);
         return { success: false, error: message };
       }
 
-      const synced = await syncFeedWithLoading();
-      if (!synced) {
-        return { success: false, error: '评论成功，但刷新列表失败，请重试' };
+      if (result.data) {
+        updateFeed((current) =>
+          current.map((post) => {
+            if (post.id !== postId) {
+              return post;
+            }
+
+            const exists = post.comments.some((comment) => comment.id === result.data!.id);
+            if (exists) {
+              return post;
+            }
+
+            return {
+              ...post,
+              comments: [...post.comments, result.data!],
+            };
+          }),
+        );
       }
 
       return { success: true };
@@ -214,14 +302,23 @@ export default function SocialPage() {
     try {
       const result = await deleteCommentMutation.mutateAsync(commentId);
       if (!result.success) {
-        setPageError(result.error ?? '删除评论失败，请重试');
+        const message = result.error ?? '\u5220\u9664\u8BC4\u8BBA\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002';
+        setPageError(message);
+        toast.error(message);
         return;
       }
 
-      const synced = await syncFeedWithLoading();
-      if (!synced) {
-        setPageError('删除评论成功，但刷新列表失败，请稍后重试');
-      }
+      updateFeed((current) =>
+        current.map((post) => ({
+          ...post,
+          comments: post.comments.filter((comment) => comment.id !== commentId),
+        })),
+      );
+      toast.success('\u5DF2\u5220\u9664\u8BC4\u8BBA');
+    } catch {
+      const message = '\u5220\u9664\u8BC4\u8BBA\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002';
+      setPageError(message);
+      toast.error(message);
     } finally {
       setDeletingCommentIds((prev) => removeFromList(prev, commentId));
     }
@@ -235,7 +332,9 @@ export default function SocialPage() {
     return (
       <div className="mx-auto max-w-lg px-4 py-6">
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {feedQuery.error instanceof Error ? feedQuery.error.message : '加载动态失败，请稍后重试'}
+          {feedQuery.error instanceof Error
+            ? feedQuery.error.message
+            : '\u52A0\u8F7D\u52A8\u6001\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002'}
         </div>
       </div>
     );
@@ -243,67 +342,80 @@ export default function SocialPage() {
 
   return (
     <div className="mx-auto max-w-lg space-y-5 px-4 py-5">
-      <section className="overflow-hidden rounded-2xl border border-orange-200/70 bg-gradient-to-br from-amber-200 via-orange-100 to-yellow-50 p-4 shadow-[0_20px_40px_-28px_rgba(193,92,18,0.62)]">
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 rounded-full bg-white/80 p-2 text-orange-600">
-            <Users className="h-5 w-5" />
+        <section className="overflow-hidden rounded-2xl border border-orange-200/70 bg-gradient-to-br from-amber-200 via-orange-100 to-yellow-50 p-4 shadow-[0_20px_40px_-28px_rgba(193,92,18,0.62)]">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 rounded-full bg-white/80 p-2 text-orange-600">
+              <Users className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold tracking-tight text-orange-900">
+                {'\u597D\u53CB\u52A8\u6001\u5E7F\u573A'}
+              </h1>
+              <p className="mt-1 text-sm text-orange-800/85">
+                {
+                  '\u548C\u5173\u6CE8\u7684\u4EBA\u540C\u6B65\u4E09\u9910\u65E5\u5E38\uFF0C\u770B\u770B\u5927\u5BB6\u4ECA\u5929\u5403\u4E86\u4EC0\u4E48\u3002'
+                }
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <h1 className="text-xl font-bold tracking-tight text-orange-900">饮食朋友圈</h1>
-            <p className="mt-1 text-sm text-orange-800/85">
-              分享每日饮食、互相鼓励打卡，操作完成后会自动同步最新内容。
+        </section>
+
+        {pageError ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {pageError}
+          </div>
+        ) : null}
+
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.24 }}
+        >
+          <CreatePost onSubmit={handleCreatePost} isSubmitting={isCreatingFlow} />
+        </motion.div>
+
+        {posts.length === 0 ? (
+          <div className="rounded-2xl border border-orange-200/75 bg-gradient-to-br from-orange-50 to-amber-50 px-4 py-12 text-center text-muted-foreground">
+            <Sparkles className="mx-auto mb-3 h-7 w-7 text-orange-500" />
+            <p className="text-sm">
+              {
+                '\u8FD8\u6CA1\u6709\u6700\u65B0\u52A8\u6001\u3002\u5148\u53D1\u4E00\u6761\uFF0C\u548C\u5927\u5BB6\u5206\u4EAB\u4F60\u7684\u7F8E\u98DF\u65F6\u523B\u3002'
+              }
             </p>
           </div>
-        </div>
-      </section>
-
-      {pageError ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {pageError}
-        </div>
-      ) : null}
-
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.24 }}
-      >
-        <CreatePost
-          onSubmit={handleCreatePost}
-          isSubmitting={isCreatingFlow}
-        />
-      </motion.div>
-
-      {posts.length === 0 ? (
-        <div className="rounded-2xl border border-orange-200/75 bg-gradient-to-br from-orange-50 to-amber-50 px-4 py-12 text-center text-muted-foreground">
-          <Sparkles className="mx-auto mb-3 h-7 w-7 text-orange-500" />
-          <p className="text-sm">暂时还没有动态，发一条让大家看到你的饮食打卡吧。</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {posts.map((post, index) => (
-            <motion.div
-              key={post.id}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.18, delay: index * 0.03 }}
-            >
-              <FeedCard
-                post={post}
-                currentUserId={currentUserId}
-                onDelete={handleDeletePost}
-                onLike={(postId) => handleToggleLike(postId, !!post.isLiked)}
-                onComment={handleAddComment}
-                onDeleteComment={handleDeleteComment}
-                isDeleting={deletingPostIds.includes(post.id)}
-                isLiking={likingPostIds.includes(post.id)}
-                isCommentSubmitting={submittingCommentPostIds.includes(post.id)}
-                deletingCommentIds={deletingCommentIds}
-              />
-            </motion.div>
-          ))}
-        </div>
-      )}
+        ) : (
+          <div className="space-y-4">
+            {posts.map((post, index) => (
+              <motion.div
+                key={post.id}
+                ref={(node) => {
+                  postNodeRefs.current[post.id] = node;
+                }}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.18, delay: index * 0.03 }}
+                className={
+                  post.id === highlightPostId
+                    ? 'rounded-2xl ring-2 ring-orange-300/80 ring-offset-2 ring-offset-white transition-all duration-300'
+                    : ''
+                }
+              >
+                <FeedCard
+                  post={post}
+                  currentUserId={currentUserId}
+                  onDelete={handleDeletePost}
+                  onLike={handleToggleLike}
+                  onComment={handleAddComment}
+                  onDeleteComment={handleDeleteComment}
+                  isDeleting={deletingPostIds.includes(post.id)}
+                  isLiking={likingPostIds.includes(post.id)}
+                  isCommentSubmitting={submittingCommentPostIds.includes(post.id)}
+                  deletingCommentIds={deletingCommentIds}
+                />
+              </motion.div>
+            ))}
+          </div>
+        )}
     </div>
   );
 }

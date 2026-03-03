@@ -7,6 +7,7 @@ import { motion } from 'framer-motion';
 import { Shield, CheckCircle2, Loader2, ArrowLeft } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/lib/ui/toast';
 import {
   CHALLENGE_DEPOSIT,
   DAILY_REWARDS,
@@ -66,22 +67,29 @@ export default function JoinChallengePage() {
     },
     onSuccess: (result) => {
       if (!result.success) {
+        toast.error(result.error ?? '\u521B\u5EFA\u8BA2\u5355\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5');
         return;
       }
 
       queryClient.invalidateQueries({ queryKey: ['activeChallenge'] });
 
       if (result.status === 'completed') {
+        toast.success('\u652F\u4ED8\u6210\u529F\uFF0C\u6311\u6218\u5DF2\u751F\u6548');
         router.push('/challenge');
         return;
       }
 
       if (result.paymentIntentId) {
+        toast.info('\u8BA2\u5355\u5DF2\u521B\u5EFA\uFF0C\u8BF7\u5B8C\u6210\u652F\u4ED8');
         router.push(`/challenge?payment=pending&tx=${result.paymentIntentId}`);
         return;
       }
 
+      toast.success('\u64CD\u4F5C\u6210\u529F');
       router.push('/challenge');
+    },
+    onError: () => {
+      toast.error('\u7F51\u7EDC\u5F02\u5E38\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5');
     },
   });
 

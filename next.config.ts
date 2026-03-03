@@ -1,8 +1,21 @@
 import type { NextConfig } from "next";
 
+const allowedDevOrigins = (
+  process.env.NEXT_ALLOWED_DEV_ORIGINS ??
+  [
+    "localhost",
+    "127.0.0.1",
+    "192.168.5.6",
+  ].join(",")
+)
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   devIndicators: false,
+  allowedDevOrigins,
   experimental: {
     serverActions: {
       // Meal records can include up to 3 compressed images in local testing mode.

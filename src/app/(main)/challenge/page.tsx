@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
@@ -20,6 +20,7 @@ import { MainPageSkeleton } from '@/components/skeleton/PageSkeletons';
 import { getActiveChallenge, cancelChallenge } from '@/app/actions/challenge';
 import { getPaymentStatus } from '@/app/actions/payment';
 import { DAILY_REWARDS, CHALLENGE_DEPOSIT } from '@/lib/utils/challenge';
+import { toast } from '@/lib/ui/toast';
 import type { Challenge } from '@/types';
 
 /**
@@ -33,6 +34,7 @@ export default function ChallengePage() {
   const paymentState = searchParams.get('payment');
   const tx = searchParams.get('tx');
   const shouldPollPayment = paymentState === 'pending' && !!tx;
+  const lastPaymentStatusRef = useRef<string | null>(null);
 
   const { data: result, isLoading } = useQuery({
     queryKey: ['activeChallenge'],
@@ -48,8 +50,20 @@ export default function ChallengePage() {
 
   useEffect(() => {
     const status = paymentStatusQuery.data?.data?.status;
+    if (!status || status === lastPaymentStatusRef.current) {
+      return;
+    }
+
+    lastPaymentStatusRef.current = status;
+
     if (status === 'completed') {
+      toast.success('\u652F\u4ED8\u6210\u529F\uFF0C\u6311\u6218\u5DF2\u6FC0\u6D3B');
       queryClient.invalidateQueries({ queryKey: ['activeChallenge'] });
+      return;
+    }
+
+    if (status === 'failed') {
+      toast.error('\u652F\u4ED8\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5');
     }
   }, [paymentStatusQuery.data, queryClient]);
 
@@ -58,7 +72,13 @@ export default function ChallengePage() {
     onSuccess: (res) => {
       if (res.success) {
         queryClient.invalidateQueries({ queryKey: ['activeChallenge'] });
+        toast.success('\u5DF2\u53D6\u6D88\u6311\u6218');
+      } else {
+        toast.error(res.error ?? '\u53D6\u6D88\u6311\u6218\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5');
       }
+    },
+    onError: () => {
+      toast.error('\u53D6\u6D88\u6311\u6218\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5');
     },
   });
 

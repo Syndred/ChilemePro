@@ -256,15 +256,17 @@ export default function FeedCard({
           <Button
             variant="ghost"
             size="sm"
-            className={`gap-1.5 ${post.isLiked ? 'text-red-500' : 'text-slate-500'}`}
+            className={`gap-1.5 ${
+              post.isLiked
+                ? 'text-red-500 hover:bg-red-50 hover:!text-red-500 active:!text-red-500'
+                : 'text-slate-500 hover:bg-red-50 hover:text-red-500'
+            }`}
             onClick={() => onLike?.(post.id)}
             disabled={isLiking || isDeleting}
+            aria-busy={isLiking}
           >
-            {isLiking ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Heart className={`h-4 w-4 ${post.isLiked ? 'fill-current' : ''}`} />
-            )}
+            <Heart className={`h-4 w-4 ${post.isLiked ? 'fill-red-500 text-red-500' : ''}`} />
+            {isLiking ? <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-500" /> : null}
             <span className="text-xs">{post.likes > 0 ? post.likes : '点赞'}</span>
           </Button>
 

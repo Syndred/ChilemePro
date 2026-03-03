@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/card';
 import { MainPageSkeleton } from '@/components/skeleton/PageSkeletons';
 import { getMembershipStatus } from '@/app/actions/membership';
 import { getPaymentStatus } from '@/app/actions/payment';
+import { toast } from '@/lib/ui/toast';
 import {
   FREE_FEATURES,
   PREMIUM_FEATURES,
@@ -56,10 +57,12 @@ export default function MembershipPage() {
 
       if (result.data.status === 'completed') {
         setPendingTxId(null);
+        toast.success('\u652F\u4ED8\u6210\u529F\uFF0C\u4F1A\u5458\u6743\u76CA\u5DF2\u751F\u6548');
         setPaymentHint('支付成功，会员权益已生效');
         await loadStatus();
       } else if (result.data.status === 'failed') {
         setPendingTxId(null);
+        toast.error('\u652F\u4ED8\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5');
         setPaymentHint('支付失败，请重试');
       }
     }, 3000);
@@ -90,11 +93,13 @@ export default function MembershipPage() {
       };
 
       if (!response.ok) {
+        toast.error(data.error ?? '\u4E0B\u5355\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5');
         setPaymentHint(data.error ?? `${providerLabel}下单失败，请重试`);
         return;
       }
 
       if (data.status === 'completed') {
+        toast.success('\u652F\u4ED8\u6210\u529F');
         setPaymentHint(data.mock ? `测试${providerLabel}成功，会员已生效` : `${providerLabel}成功`);
         await loadStatus();
         return;
@@ -102,12 +107,14 @@ export default function MembershipPage() {
 
       if (data.paymentIntentId) {
         setPendingTxId(data.paymentIntentId);
+        toast.info('\u8BA2\u5355\u5DF2\u521B\u5EFA\uFF0C\u8BF7\u5B8C\u6210\u652F\u4ED8');
         setPaymentHint(`订单已创建，请完成${providerLabel}后等待状态更新`);
         return;
       }
 
       setPaymentHint(`支付订单创建成功，请完成${providerLabel}`);
     } catch {
+      toast.error('\u7F51\u7EDC\u9519\u8BEF\uFF0C\u8BF7\u91CD\u8BD5');
       setPaymentHint('网络错误，请重试');
     } finally {
       setPaying(false);

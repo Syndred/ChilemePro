@@ -228,6 +228,10 @@ export default function CreatePost({ onSubmit, isSubmitting = false }: CreatePos
           </span>
         </div>
 
+        <p className="text-[11px] text-slate-400">
+          手机端部分系统可能一次只能选 1 张，可重复点击“添加图片”继续追加。
+        </p>
+
         <div className="grid grid-cols-2 gap-2">
           {images.map((img, index) => (
             <div

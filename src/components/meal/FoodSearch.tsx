@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { Search, Plus } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import { NumberStepperField } from '@/components/form/NumberStepperField';
 
 /** A food entry from the database or custom input */
@@ -61,9 +62,7 @@ export function FoodSearch({ onSelect }: FoodSearchProps) {
   const filteredFoods = useMemo(() => {
     if (!query.trim()) return COMMON_FOODS;
     const q = query.trim().toLowerCase();
-    return COMMON_FOODS.filter((food) =>
-      food.name.toLowerCase().includes(q),
-    );
+    return COMMON_FOODS.filter((food) => food.name.toLowerCase().includes(q));
   }, [query]);
 
   const handleCustomSubmit = () => {
@@ -111,7 +110,6 @@ export function FoodSearch({ onSelect }: FoodSearchProps) {
 
   return (
     <div className="space-y-3">
-      {/* Search input */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
@@ -123,7 +121,6 @@ export function FoodSearch({ onSelect }: FoodSearchProps) {
         />
       </div>
 
-      {/* Food list */}
       <ul className="max-h-48 space-y-1 overflow-y-auto" role="listbox" aria-label="食物搜索结果">
         {filteredFoods.map((food) => (
           <li key={food.name} role="option" aria-selected={false}>
@@ -140,13 +137,10 @@ export function FoodSearch({ onSelect }: FoodSearchProps) {
           </li>
         ))}
         {filteredFoods.length === 0 && (
-          <li className="px-3 py-2 text-sm text-muted-foreground">
-            未找到匹配食物
-          </li>
+          <li className="px-3 py-2 text-sm text-muted-foreground">未找到匹配食物</li>
         )}
       </ul>
 
-      {/* Custom food toggle */}
       <Button
         type="button"
         variant="outline"
@@ -158,7 +152,6 @@ export function FoodSearch({ onSelect }: FoodSearchProps) {
         自定义食物
       </Button>
 
-      {/* Custom food form - Requirement 3.6 */}
       {showCustom && (
         <div className="space-y-2 rounded-md border p-3">
           <Input
@@ -172,6 +165,7 @@ export function FoodSearch({ onSelect }: FoodSearchProps) {
             }}
             aria-label="自定义食物名称"
           />
+
           <div className="grid grid-cols-2 gap-2">
             <NumberStepperField
               id="custom-food-calories"
@@ -184,6 +178,7 @@ export function FoodSearch({ onSelect }: FoodSearchProps) {
               fallbackValue={CUSTOM_FOOD_DEFAULTS.caloriesPerServing}
               onChange={(value) => setCustomNumericField('caloriesPerServing', value)}
             />
+
             <NumberStepperField
               id="custom-food-serving"
               label="份量"
@@ -195,6 +190,7 @@ export function FoodSearch({ onSelect }: FoodSearchProps) {
               fallbackValue={CUSTOM_FOOD_DEFAULTS.defaultServing}
               onChange={(value) => setCustomNumericField('defaultServing', value)}
             />
+
             <NumberStepperField
               id="custom-food-protein"
               label="蛋白质"
@@ -206,6 +202,7 @@ export function FoodSearch({ onSelect }: FoodSearchProps) {
               fallbackValue={CUSTOM_FOOD_DEFAULTS.proteinPerServing}
               onChange={(value) => setCustomNumericField('proteinPerServing', value)}
             />
+
             <NumberStepperField
               id="custom-food-fat"
               label="脂肪"
@@ -217,6 +214,7 @@ export function FoodSearch({ onSelect }: FoodSearchProps) {
               fallbackValue={CUSTOM_FOOD_DEFAULTS.fatPerServing}
               onChange={(value) => setCustomNumericField('fatPerServing', value)}
             />
+
             <NumberStepperField
               id="custom-food-carbs"
               label="碳水"
@@ -228,23 +226,30 @@ export function FoodSearch({ onSelect }: FoodSearchProps) {
               fallbackValue={CUSTOM_FOOD_DEFAULTS.carbsPerServing}
               onChange={(value) => setCustomNumericField('carbsPerServing', value)}
             />
-            <Input
-              placeholder="单位(如 g, ml)"
-              value={customFood.unit}
-              onChange={(e) => {
-                setCustomFood({ ...customFood, unit: e.target.value });
-                if (customError) {
-                  setCustomError(null);
-                }
-              }}
-              aria-label="单位"
-            />
+
+            <div className="space-y-2">
+              <Label htmlFor="custom-food-unit">单位</Label>
+              <Input
+                id="custom-food-unit"
+                placeholder="如 g、ml"
+                value={customFood.unit}
+                onChange={(e) => {
+                  setCustomFood({ ...customFood, unit: e.target.value });
+                  if (customError) {
+                    setCustomError(null);
+                  }
+                }}
+                aria-label="单位"
+              />
+            </div>
           </div>
+
           {customError && (
             <p className="text-sm text-destructive" role="alert">
               {customError}
             </p>
           )}
+
           <Button
             type="button"
             size="sm"

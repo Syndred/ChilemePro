@@ -46,6 +46,7 @@ import {
   unsubscribeFromPush,
   serializePushSubscription,
 } from '@/lib/push/push-subscription';
+import { toast } from '@/lib/ui/toast';
 
 function shouldEnablePush(settings: NotificationSettings): boolean {
   return Object.values(settings).some(Boolean);
@@ -130,11 +131,13 @@ export default function SettingsPage() {
       const result = await updateNotificationSettings(next);
       if (!result.success) {
         setNotifications(notifications);
+        toast.error(result.error ?? '\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5');
         setSavingHint(result.error ?? '保存失败');
         return;
       }
 
       await syncPushState(next);
+      toast.success('\u8BBE\u7F6E\u5DF2\u4FDD\u5B58');
       setSavingHint('已保存');
       setTimeout(() => setSavingHint(null), 1500);
     },
@@ -150,6 +153,7 @@ export default function SettingsPage() {
       const result = await updatePrivacySettings(next);
       if (!result.success) {
         setPrivacy(privacy);
+        toast.error(result.error ?? '\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5');
         setSavingHint(result.error ?? '保存失败');
         return;
       }
@@ -164,8 +168,10 @@ export default function SettingsPage() {
     setLoggingOut(true);
     const result = await logoutUser();
     if (result.success) {
+      toast.success('\u5DF2\u9000\u51FA\u767B\u5F55');
       router.push('/login');
     } else {
+      toast.error(result.error ?? '\u9000\u51FA\u767B\u5F55\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5');
       setLoggingOut(false);
       setLogoutDialogOpen(false);
     }
