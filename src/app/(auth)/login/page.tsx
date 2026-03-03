@@ -1,21 +1,24 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback } from 'react';
 import { LoginForm } from '@/components/auth/LoginForm';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextPath = searchParams.get('next');
+  const safeNextPath = nextPath && nextPath.startsWith('/') ? nextPath : '/';
 
   const handleSuccess = useCallback(
     (_userId: string, isNewUser: boolean) => {
       if (isNewUser) {
         router.push('/onboarding');
       } else {
-        router.push('/');
+        router.push(safeNextPath);
       }
     },
-    [router],
+    [router, safeNextPath],
   );
 
   return (

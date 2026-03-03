@@ -102,7 +102,7 @@ export default function CreatePost({ onSubmit, isSubmitting = false }: CreatePos
 
   const handleAddImageClick = () => {
     if (images.length >= MAX_POST_IMAGES) {
-      setError(`最多上传 ${MAX_POST_IMAGES} 张照片`);
+      setError(`最多上传 ${MAX_POST_IMAGES} 张图片`);
       return;
     }
 
@@ -119,7 +119,7 @@ export default function CreatePost({ onSubmit, isSubmitting = false }: CreatePos
 
     const remaining = MAX_POST_IMAGES - images.length;
     if (remaining <= 0) {
-      setError(`最多上传 ${MAX_POST_IMAGES} 张照片`);
+      setError(`最多上传 ${MAX_POST_IMAGES} 张图片`);
       return;
     }
 
@@ -210,15 +210,13 @@ export default function CreatePost({ onSubmit, isSubmitting = false }: CreatePos
     <Card className="overflow-hidden border-orange-200/70 bg-gradient-to-br from-white via-orange-50/45 to-amber-50/65 shadow-[0_16px_35px_-20px_rgba(194,106,21,0.5)]">
       <CardContent className="space-y-3 p-4">
         <div className="rounded-2xl bg-gradient-to-r from-amber-300/80 via-orange-300/85 to-yellow-300/80 p-[1.5px] shadow-[0_10px_24px_-18px_rgba(194,106,21,0.7)]">
-          <div className="rounded-[15px] bg-white/95 px-4 py-3">
-            <Textarea
-              placeholder="分享这一餐的感受、做法或心得..."
-              value={content}
-              onChange={(e) => handleContentChange(e.target.value)}
-              className="min-h-[96px] resize-none border-0 bg-transparent p-0 text-sm leading-relaxed focus-visible:ring-0"
-              maxLength={MAX_POST_CONTENT_LENGTH}
-            />
-          </div>
+          <Textarea
+            placeholder="分享这一餐的感受、做法或心得..."
+            value={content}
+            onChange={(e) => handleContentChange(e.target.value)}
+            className="min-h-[96px] resize-none rounded-[15px] border-0 bg-white/95 px-4 py-3 text-sm leading-relaxed focus-visible:ring-0"
+            maxLength={MAX_POST_CONTENT_LENGTH}
+          />
         </div>
 
         <div className="flex items-center justify-between text-xs text-slate-500">

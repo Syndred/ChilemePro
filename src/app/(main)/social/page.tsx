@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Loader2, Sparkles, Users } from 'lucide-react';
+import { Sparkles, Users } from 'lucide-react';
 import FeedCard from '@/components/social/FeedCard';
 import CreatePost from '@/components/social/CreatePost';
 import { SocialPageSkeleton } from '@/components/skeleton/PageSkeletons';
@@ -52,7 +52,8 @@ export default function SocialPage() {
   const [likingPostIds, setLikingPostIds] = useState<string[]>([]);
   const [submittingCommentPostIds, setSubmittingCommentPostIds] = useState<string[]>([]);
   const [deletingCommentIds, setDeletingCommentIds] = useState<string[]>([]);
-  const [feedSyncingCount, setFeedSyncingCount] = useState(0);
+  const [, setFeedSyncingCount] = useState(0);
+  const [isCreatingFlow, setIsCreatingFlow] = useState(false);
 
   const feedQuery = useQuery({
     queryKey: SOCIAL_FEED_QUERY_KEY,
@@ -95,7 +96,6 @@ export default function SocialPage() {
   const posts = useMemo<SocialPost[]>(() => feedQuery.data ?? [], [feedQuery.data]);
   const currentUserId = userQuery.data ?? undefined;
   const isLoading = feedQuery.isLoading || userQuery.isLoading;
-  const isFeedSyncing = feedSyncingCount > 0;
 
   const syncFeedWithLoading = async (): Promise<boolean> => {
     setFeedSyncingCount((prev) => prev + 1);
@@ -118,21 +118,27 @@ export default function SocialPage() {
     content: string;
     images: string[];
   }): Promise<{ success: boolean; error?: string }> => {
+    setIsCreatingFlow(true);
     setPageError(null);
-    const result = await createMutation.mutateAsync(input);
 
-    if (!result.success) {
-      const message = result.error ?? '发布动态失败，请稍后重试';
-      setPageError(message);
-      return { success: false, error: message };
+    try {
+      const result = await createMutation.mutateAsync(input);
+
+      if (!result.success) {
+        const message = result.error ?? '发布动态失败，请稍后重试';
+        setPageError(message);
+        return { success: false, error: message };
+      }
+
+      const synced = await syncFeedWithLoading();
+      if (!synced) {
+        setPageError('动态已发布，但刷新列表失败，请稍后重试');
+      }
+
+      return { success: true };
+    } finally {
+      setIsCreatingFlow(false);
     }
-
-    const synced = await syncFeedWithLoading();
-    if (!synced) {
-      setPageError('动态已发布，但刷新列表失败，请稍后重试');
-    }
-
-    return { success: true };
   };
 
   const handleDeletePost = async (postId: string) => {
@@ -264,7 +270,7 @@ export default function SocialPage() {
       >
         <CreatePost
           onSubmit={handleCreatePost}
-          isSubmitting={createMutation.isPending || isFeedSyncing}
+          isSubmitting={isCreatingFlow}
         />
       </motion.div>
 
@@ -298,18 +304,6 @@ export default function SocialPage() {
           ))}
         </div>
       )}
-
-      {(createMutation.isPending ||
-        deleteMutation.isPending ||
-        commentMutation.isPending ||
-        deleteCommentMutation.isPending ||
-        likeMutation.isPending ||
-        isFeedSyncing) ? (
-        <p className="inline-flex items-center gap-1 text-xs text-orange-700">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          正在同步最新动态...
-        </p>
-      ) : null}
     </div>
   );
 }

@@ -29,7 +29,6 @@ interface SaveProfileInput {
 export async function saveUserProfile(
   input: SaveProfileInput,
 ): Promise<ActionResult> {
-  // Validate the body fields (excluding dailyCalorieTarget which is computed)
   const parsed = onboardingSchema.safeParse({
     height: input.height,
     weight: input.weight,
@@ -80,12 +79,13 @@ export async function saveUserProfile(
 
 /**
  * Get the current user's profile data.
- * Used by the home page to display calorie target.
+ * Used by home/stats pages to display calorie target and identity info.
  */
 export async function getUserProfile(): Promise<
   ActionResult<{
     dailyCalorieTarget: number;
     nickname: string;
+    avatar: string;
   }>
 > {
   try {
@@ -100,7 +100,7 @@ export async function getUserProfile(): Promise<
 
     const { data, error } = await supabase
       .from('users')
-      .select('daily_calorie_target, nickname')
+      .select('daily_calorie_target, nickname, avatar')
       .eq('id', user.id)
       .single();
 
@@ -113,6 +113,7 @@ export async function getUserProfile(): Promise<
       data: {
         dailyCalorieTarget: Number(data.daily_calorie_target) || 2000,
         nickname: (data.nickname as string) || '用户',
+        avatar: (data.avatar as string) || '',
       },
     };
   } catch {
