@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Edit2, Image as ImageIcon, Loader2, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,10 +14,10 @@ const MEAL_TYPE_LABELS: Record<MealType, string> = {
 };
 
 const MEAL_TYPE_EMOJI: Record<MealType, string> = {
-  breakfast: '🥣',
-  lunch: '🍱',
-  dinner: '🍲',
-  snack: '🍎',
+  breakfast: '\u{1F963}',
+  lunch: '\u{1F371}',
+  dinner: '\u{1F372}',
+  snack: '\u{1F34E}',
 };
 
 interface MealRecordCardProps {
@@ -33,6 +33,7 @@ function formatRecordedTime(date: Date): string {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'Asia/Shanghai',
     hour12: false,
   });
 }
@@ -49,7 +50,7 @@ function getMealImageUrls(record: MealRecord): string[] {
   return [];
 }
 
-export function MealRecordCard({
+function MealRecordCardComponent({
   record,
   onEdit,
   onDelete,
@@ -70,7 +71,13 @@ export function MealRecordCard({
       {hasImageBackground ? (
         <div className="absolute inset-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={coverImage} alt="餐次背景图" className="h-full w-full object-cover" />
+          <img
+            src={coverImage}
+            alt="餐次背景图"
+            loading="lazy"
+            decoding="async"
+            className="h-full w-full object-cover"
+          />
           <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-black/30 to-black/70" />
         </div>
       ) : (
@@ -184,7 +191,13 @@ export function MealRecordCard({
                   aria-pressed={isActive}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={url} alt={`附图 ${index + 1}`} className="h-full w-full object-cover" />
+                  <img
+                    src={url}
+                    alt={`附图 ${index + 1}`}
+                    loading="lazy"
+                    decoding="async"
+                    className="h-full w-full object-cover"
+                  />
                 </button>
               );
             })}
@@ -240,3 +253,6 @@ export function MealRecordCard({
     </Card>
   );
 }
+
+export const MealRecordCard = memo(MealRecordCardComponent);
+MealRecordCard.displayName = 'MealRecordCard';

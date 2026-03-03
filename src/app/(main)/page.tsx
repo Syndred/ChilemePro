@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -26,6 +26,21 @@ const HOME_MEAL_HIGHLIGHT_KEY = 'home:meal-highlight';
 interface HomeMealHighlightPayload {
   recordId: string;
   dateKey: string;
+}
+
+interface DeleteResult {
+  success: boolean;
+  error?: string;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutValue: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => resolve(timeoutValue), timeoutMs);
+    promise
+      .then((value) => resolve(value))
+      .catch(() => resolve(timeoutValue))
+      .finally(() => window.clearTimeout(timer));
+  });
 }
 
 function sortMealsByLatest(records: MealRecord[]): MealRecord[] {
@@ -67,6 +82,7 @@ export default function HomePage() {
   );
   const orderedMeals = useMemo(() => sortMealsByLatest(meals), [meals]);
   const target = profile?.dailyCalorieTarget ?? 2000;
+  const deletingRecordIdSet = useMemo(() => new Set(deletingRecordIds), [deletingRecordIds]);
 
   const dailyTotals = useMemo(
     () =>
@@ -128,7 +144,7 @@ export default function HomePage() {
     return () => window.clearTimeout(timer);
   }, [highlightRecordId, selectedDateKey, orderedMeals.length]);
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = useCallback(async (id: string) => {
     if (deletingRecordIds.includes(id)) {
       return;
     }
@@ -137,23 +153,44 @@ export default function HomePage() {
     setDeleteError(null);
 
     try {
-      const result = await deleteMealRecord(id);
+      const result = await withTimeout<DeleteResult>(
+        deleteMealRecord(id),
+        12000,
+        { success: false, error: '删除超时，请重试' },
+      );
       if (!result.success) {
         toast.error('\u5220\u9664\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5');
         setDeleteError(result.error ?? '删除失败，请重试。');
         return;
       }
 
-      await queryClient.invalidateQueries({ queryKey: ['meals', selectedDateKey] });
+      queryClient.setQueryData<{ success: boolean; data?: MealRecord[] }>(
+        ['meals', selectedDateKey],
+        (current) => {
+          if (!current || !current.success) {
+            return current;
+          }
+
+          return {
+            ...current,
+            data: (current.data ?? []).filter((record) => record.id !== id),
+          };
+        },
+      );
+      void queryClient.invalidateQueries({ queryKey: ['meals', selectedDateKey] });
+      void queryClient.invalidateQueries({ queryKey: ['calorieStats'] });
       toast.success('\u5DF2\u5220\u9664\u8BB0\u5F55');
+    } catch {
+      toast.error('\u5220\u9664\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5');
+      setDeleteError('删除失败，请重试。');
     } finally {
       setDeletingRecordIds((prev) => prev.filter((recordId) => recordId !== id));
     }
-  };
+  }, [deletingRecordIds, queryClient, selectedDateKey]);
 
-  const handleEdit = (record: MealRecord) => {
+  const handleEdit = useCallback((record: MealRecord) => {
     router.push(`/add-meal?edit=${record.id}`);
-  };
+  }, [router]);
 
   return (
     <div className="mx-auto max-w-lg space-y-4 bg-gradient-to-b from-orange-50/50 via-amber-50/30 to-background p-4">
@@ -268,12 +305,13 @@ export default function HomePage() {
                   ? 'rounded-2xl ring-2 ring-orange-300/80 ring-offset-2 ring-offset-white transition-all duration-300'
                   : ''
               }
+              style={{ contentVisibility: 'auto', containIntrinsicSize: '420px' }}
             >
               <MealRecordCard
                 record={record}
                 onEdit={handleEdit}
                 onDelete={handleDelete}
-                isDeleting={deletingRecordIds.includes(record.id)}
+                isDeleting={deletingRecordIdSet.has(record.id)}
               />
             </div>
           ))

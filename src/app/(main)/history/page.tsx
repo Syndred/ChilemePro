@@ -17,6 +17,21 @@ import { Card, CardContent } from '@/components/ui/card';
 import { toast } from '@/lib/ui/toast';
 import type { MealRecord } from '@/types';
 
+interface DeleteResult {
+  success: boolean;
+  error?: string;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutValue: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => resolve(timeoutValue), timeoutMs);
+    promise
+      .then((value) => resolve(value))
+      .catch(() => resolve(timeoutValue))
+      .finally(() => window.clearTimeout(timer));
+  });
+}
+
 /**
  * History page - view meal records for any date.
  */
@@ -26,6 +41,7 @@ export default function HistoryPage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [deletingRecordIds, setDeletingRecordIds] = useState<string[]>([]);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const selectedDateKey = selectedDate.toDateString();
 
   const { data: profileResult } = useQuery({
     queryKey: ['userProfile'],
@@ -33,7 +49,7 @@ export default function HistoryPage() {
   });
 
   const { data: mealsResult, isLoading } = useQuery({
-    queryKey: ['meals', selectedDate.toDateString()],
+    queryKey: ['meals', selectedDateKey],
     queryFn: () => getMealRecordsByDate(selectedDate),
   });
 
@@ -59,16 +75,34 @@ export default function HistoryPage() {
     setDeleteError(null);
 
     try {
-      const result = await deleteMealRecord(id);
+      const result = await withTimeout<DeleteResult>(
+        deleteMealRecord(id),
+        12000,
+        { success: false, error: '删除超时，请重试' },
+      );
       if (!result.success) {
         toast.error('\u5220\u9664\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5');
         setDeleteError(result.error ?? '删除失败，请重试。');
         return;
       }
 
-      await queryClient.invalidateQueries({
-        queryKey: ['meals', selectedDate.toDateString()],
+      queryClient.setQueryData<{ success: boolean; data?: MealRecord[] }>(
+        ['meals', selectedDateKey],
+        (current) => {
+          if (!current || !current.success) {
+            return current;
+          }
+
+          return {
+            ...current,
+            data: (current.data ?? []).filter((record) => record.id !== id),
+          };
+        },
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ['meals', selectedDateKey],
       });
+      void queryClient.invalidateQueries({ queryKey: ['calorieStats'] });
       toast.success('\u5DF2\u5220\u9664\u8BB0\u5F55');
     } finally {
       setDeletingRecordIds((prev) => prev.filter((recordId) => recordId !== id));
